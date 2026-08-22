@@ -25,6 +25,8 @@ check "PJSIP cached-limit validation" "grep -q 'pjsip_limits_ok' '$ROOT/build-te
 check "PortAudio SIP backend" "grep -q -- '--with-external-pa' '$ROOT/build-termux.sh'"
 check "Termux SIP JNI audio disabled" "grep -q '#define PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI 0' '$ROOT/build-termux.sh' && grep -q '#define PJMEDIA_AUDIO_DEV_HAS_OBOE 0' '$ROOT/build-termux.sh'"
 check "Termux SIP cached JNI validation" "grep -q 'PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI.*0' '$ROOT/build-termux.sh'"
+check "Termux runtime uses TMPDIR" "grep -q 'absoluteEnvPath(\"TMPDIR\")' '$ROOT/src/sipcore/RuntimePaths.cpp' && grep -q 'absoluteEnvPath(\"PREFIX\")' '$ROOT/src/sipcore/RuntimePaths.cpp'"
+check "Termux builder avoids literal /tmp scratch file" "grep -q 'TMPBASE=\"\${TMPDIR:-\$PREFIX_EXPECTED/tmp}\"' '$ROOT/build-termux.sh' && ! grep -Eq '/tmp/wh-xdg-status' '$ROOT/build-termux.sh'"
 check "SIP startup error retained" "grep -q 'm_initializationError' '$ROOT/src/sipcontroller.cpp' && grep -q 'initializationError() const' '$ROOT/src/sipcontroller.h'"
 check "SIP startup error visible in TUI" "grep -q '\\[error\\] SIP engine startup failed:' '$ROOT/src/terminalui.cpp'"
 check "AIM/OSCAR retained" "test -f '$ROOT/src/oscarbackend.cpp' && grep -q 'oscarbackend.cpp' '$ROOT/CMakeLists.txt'"

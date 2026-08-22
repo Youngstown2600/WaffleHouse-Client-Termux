@@ -53,3 +53,7 @@ termux-setup-storage
 ./build.sh --test        run source/parity tests only
 ./build.sh --uninstall   uninstall WaffleHouse-Client files
 ```
+
+## Termux runtime paths
+
+WaffleHouse-Client uses Termux's writable `$TMPDIR` (normally `$PREFIX/tmp`) for SIP logs, sockets, and temporary runtime data. It does not assume Android exposes a writable `/tmp`. If Termux temp variables are unavailable, Android falls back to `$HOME/.cache/wafflehouse-client/tmp`.

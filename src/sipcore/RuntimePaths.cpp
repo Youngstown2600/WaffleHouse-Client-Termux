@@ -118,7 +118,27 @@ std::filesystem::path logPath()
 std::filesystem::path tempDir()
 {
 #ifndef _WIN32
-    return std::filesystem::path("/tmp") / ("wafflehouse-client-" + std::to_string(static_cast<unsigned long>(::getuid())));
+    // Termux does not expose the traditional Android/Linux /tmp as a writable
+    // application scratch directory. Honour TMPDIR first (Termux sets it to
+    // $PREFIX/tmp), then XDG_RUNTIME_DIR, and only use the conventional /tmp
+    // fallback on non-Android Unix hosts. If neither Termux variable is
+    // available, keep the scratch area private inside the user's cache tree.
+    auto base = absoluteEnvPath("TMPDIR");
+    if (base.empty()) base = absoluteEnvPath("XDG_RUNTIME_DIR");
+#ifdef __ANDROID__
+    if (base.empty()) {
+        const auto prefix = absoluteEnvPath("PREFIX");
+        if (!prefix.empty()) base = prefix / "tmp";
+    }
+    if (base.empty()) base = homeDir() / ".cache" / "wafflehouse-client" / "tmp";
+#else
+    if (base.empty()) {
+        std::error_code ec;
+        base = std::filesystem::temp_directory_path(ec);
+        if (ec || base.empty()) base = std::filesystem::path("/tmp");
+    }
+#endif
+    return base / ("wafflehouse-client-" + std::to_string(static_cast<unsigned long>(::getuid())));
 #else
     auto portable = portableRoot();
     if (!portable.empty()) return portable / "data" / "tmp";

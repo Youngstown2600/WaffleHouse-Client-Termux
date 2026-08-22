@@ -8,6 +8,7 @@ BUILD="$ROOT/build-termux"
 PJROOT="$ROOT/.termux/pjproject-2.17"
 PJINSTALL="$PREFIX_EXPECTED/opt/wafflehouse-pjsip-2.17"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
+TMPBASE="${TMPDIR:-$PREFIX_EXPECTED/tmp}"
 
 say(){ printf '\n==> %s\n' "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -45,12 +46,14 @@ repair_package_state(){
     fi
   done
   # If CPAN-backed xdg-utils was interrupted, remove that broken package before configure.
-  if dpkg-query -W -f='${Status}\n' xdg-utils >/tmp/wh-xdg-status.$$ 2>/dev/null; then
-    if ! grep -q 'install ok installed' /tmp/wh-xdg-status.$$; then
+  local xdg_status="$TMPBASE/wh-xdg-status.$$"
+  mkdir -p "$TMPBASE"
+  if dpkg-query -W -f='${Status}\n' xdg-utils >"$xdg_status" 2>/dev/null; then
+    if ! grep -q 'install ok installed' "$xdg_status"; then
       dpkg --remove --force-remove-reinstreq xdg-utils >/dev/null 2>&1 || true
     fi
   fi
-  rm -f /tmp/wh-xdg-status.$$
+  rm -f "$xdg_status"
   dpkg --configure -a >/dev/null 2>&1 || true
 }
 

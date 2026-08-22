@@ -20,10 +20,11 @@ Architecture
 - Incoming file transfers prefer ~/storage/downloads when Termux shared storage is available.
 - Android URL launch uses termux-open-url, then existing xdg-open.
 - Notification audio can use termux-media-player.
+- All runtime/SIP scratch paths honor Termux `$TMPDIR` / `$PREFIX/tmp`; hard-coded `/tmp` is not used on Android.
 
 Feature preservation gate
 -------------------------
-35/35 PASS:
+41/41 PASS:
 - AIM/OSCAR
 - IRC and slash commands
 - Telnet/BBS and ANSI terminal model

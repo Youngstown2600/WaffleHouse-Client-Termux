@@ -1,3 +1,9 @@
+
+## 3.2-Termux — Termux TMPDIR runtime fix
+- SIP/runtime scratch files now use `$TMPDIR` (or `$PREFIX/tmp`) on Termux instead of hard-coded `/tmp`.
+- Added `$HOME/.cache/wafflehouse-client/tmp` as the Android fallback when Termux temp variables are unavailable.
+- Builder package-state scratch files now also use `$TMPDIR`.
+- Added regression checks preventing hard-coded Termux `/tmp` paths from returning.
 # WaffleHouse-Client 3.1r8 “Termux” — YouTube feature removal — 2026-08-22
 
 - Removed the dedicated YouTube Audio button from the WaffleHouse Media Media Center GUI.
