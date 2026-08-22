@@ -105,11 +105,26 @@ install_packages() {
   run pkg install -y x11-repo
   run pkg update -y
 
+  # Keep Termux package names separate from pkg-config module names.  In
+  # particular, the Opus package is named libopus while it exports opus.pc.
+  TERMUX_DEPS="clang cmake make pkg-config git curl ca-certificates qt6-qtbase libsodium ncurses openssl libuuid portaudio libopus mpv ffmpeg termux-api"
+
+  echo "==> Verifying Termux dependency package names"
+  if [ "$DRY_RUN" -eq 0 ]; then
+    for package in $TERMUX_DEPS; do
+      if ! pkg show "$package" >/dev/null 2>&1; then
+        echo "Required Termux package is unavailable from enabled repositories: $package" >&2
+        echo "Try: pkg update && pkg upgrade" >&2
+        exit 1
+      fi
+    done
+  else
+    echo "  [dry-run] pkg show: $TERMUX_DEPS"
+  fi
+
   echo "==> Installing WaffleHouse build/runtime dependencies"
-  run pkg install -y \
-    clang cmake make pkg-config git curl ca-certificates \
-    qt6-qtbase libsodium ncurses openssl libuuid portaudio opus \
-    mpv ffmpeg termux-api
+  # shellcheck disable=SC2086 -- intentional word splitting of package list.
+  run pkg install -y $TERMUX_DEPS
 }
 
 install_packages

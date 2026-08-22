@@ -222,7 +222,7 @@ PIC_CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fPIC"
 if [ "$HOST_OS" = Termux ]; then
   LOCALBASE=${TERMUX_APP_PREFIX:-/data/data/com.termux/files/usr}
   PC=${PKG_CONFIG:-pkg-config}
-  for spec in "portaudio-2.0:portaudio:Android OpenSL ES audio" "opus:opus:Opus codec" "openssl:openssl:TLS/SRTP crypto" "uuid:libuuid:SIP GUID generation"; do
+  for spec in "portaudio-2.0:portaudio:Android OpenSL ES audio" "opus:libopus:Opus codec" "openssl:openssl:TLS/SRTP crypto" "uuid:libuuid:SIP GUID generation"; do
     module=${spec%%:*}; rest=${spec#*:}; package=${rest%%:*}; purpose=${rest#*:}
     if ! "$PC" --exists "$module" 2>/dev/null; then
       echo "Termux PJSIP requires $package ($purpose). Install it with: pkg install $package" >&2

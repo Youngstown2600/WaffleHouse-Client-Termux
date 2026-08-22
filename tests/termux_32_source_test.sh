@@ -21,7 +21,7 @@ need src/main_termux.cpp 'TerminalUi ui;'
 need src/main_termux.cpp 'migrateLegacyWaffleHouseProfiles();'
 
 # Termux builder and PJSIP/audio path.
-need build-termux.sh 'qt6-qtbase libsodium ncurses openssl libuuid portaudio opus'
+need build-termux.sh 'qt6-qtbase libsodium ncurses openssl libuuid portaudio libopus'
 need build-termux.sh 'mpv ffmpeg termux-api'
 need build-termux.sh 'PJSIP_PREFIX='
 need build-termux.sh 'sh scripts/bootstrap-pjsip.sh'
@@ -31,6 +31,7 @@ need build-termux.sh '--uninstall|--remove-only) UNINSTALL=1'
 need scripts/build-pjsip.sh 'HOST_OS=Termux'
 need scripts/build-pjsip.sh '--with-external-pa'
 need scripts/build-pjsip.sh 'portaudio-2.0:portaudio:Android OpenSL ES audio'
+need scripts/build-pjsip.sh 'opus:libopus:Opus codec'
 need scripts/build-pjsip.sh "sed 's/-lstdc++/-lc++/g'"
 need scripts/build-pjsip.sh 'PJSUA_MAX_ACC 32'
 need scripts/build-pjsip.sh 'PJSUA_MAX_CALLS 64'

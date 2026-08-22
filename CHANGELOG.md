@@ -1,5 +1,12 @@
 # WaffleHouse-Client 3.2-Termux — 2026-08-22
 
+### 3.2-Termux dependency hotfix
+
+- Corrected the Termux Opus package name from `opus` to `libopus`.
+- Kept the pkg-config module check as `opus`, which is the module exported by libopus.
+- Added a Termux package-name preflight before dependency installation so unavailable package names are reported clearly.
+
+
 - Added dedicated Android/Termux CLI target and builder.
 - Removed the former edition branding while retaining the media/radio feature set.
 - Preserved AIM/OSCAR, IRC, Telnet/BBS, Secure Rooms/DM, file transfer, SIP softphone, themes, notifications and media controls.
