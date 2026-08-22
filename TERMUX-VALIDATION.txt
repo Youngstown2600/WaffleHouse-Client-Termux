@@ -1,4 +1,4 @@
-WaffleHouse-Client 3.2-Termux — validation
+WaffleHouse-Client-Termux Build 0.5 — validation
 =========================================
 
 Termux-specific parity gate: 43/43 PASS.

@@ -158,7 +158,7 @@ bool TerminalUi::start()
     Buffer *global = ensureBuffer(QStringLiteral("global"), {}, {},
                                   QStringLiteral("Status"), true);
     append(global,
-           QStringLiteral("WaffleHouse-Client %1 started in Termux. /help shows commands. /options configures the TUI.").arg(appVersionString()),
+           QStringLiteral("%1 %2 started in Termux. /help shows commands. /options configures the TUI.").arg(appDisplayName(), appVersionString()),
            false);
     append(global,
            QStringLiteral("Runtime: %1").arg(RuntimeEnvironment::detect().summary()),
@@ -535,7 +535,7 @@ void TerminalUi::showSplash()
         int attr = A_BOLD | (has_colors() ? COLOR_PAIR(PairHeader) : 0);
         safeAdd(startY + i, x, line, attr);
     }
-    const QString edition = QStringLiteral("WAFFLEHOUSE-CLI — VERSION %1").arg(appVersionString().toUpper());
+    const QString edition = QStringLiteral("WAFFLEHOUSE-CLIENT-TERMUX — %1").arg(appVersionString().toUpper());
     const QString subtitle = QStringLiteral("MODERN MULTI-PROTOCOL COMMUNICATIONS TERMINAL");
     const QString protocols = QStringLiteral("AIM/OSCAR  |  IRC  |  TELNET/BBS  |  SIP/VOIP");
     safeAdd(startY + logoHeight + 1, std::max(0, (COLS - static_cast<int>(edition.size())) / 2), edition, A_BOLD);
@@ -651,7 +651,7 @@ void TerminalUi::requestClientVersion(ConnectionEntry *entry, QString target)
     QTimer::singleShot(3500, this, [this, key, target, protocol] {
         if (!m_pendingVersionQueries.remove(key)) return;
         status(protocol == ConnectionSettings::Protocol::Oscar
-            ? QStringLiteral("[version] %1: no 3.2-Termux reply; peer may be an older WaffleHouse/CPX client or another AIM client (exact version unavailable)").arg(target)
+            ? QStringLiteral("[version] %1: no Build 0.5 reply; peer may be an older WaffleHouse/CPX client or another AIM client (exact version unavailable)").arg(target)
             : QStringLiteral("[version] %1: no CTCP VERSION reply received").arg(target));
     });
     if (auto *irc = qobject_cast<IrcBackend *>(entry->backend)) {
@@ -1069,7 +1069,7 @@ void TerminalUi::drawHeader(int width)
         }
     }
 
-    const QString label = QStringLiteral("╭─ WAFFLEHOUSE-CLI %1%2 ").arg(appVersionString().toUpper(), context);
+    const QString label = QStringLiteral("╭─ WAFFLEHOUSE-CLIENT-TERMUX %1%2 ").arg(appVersionString().toUpper(), context);
     QString line = label;
     const int fill = std::max(0, width - static_cast<int>(line.size()) - 1);
     line += QString(fill, QChar(0x2500)); // ─
@@ -1478,7 +1478,7 @@ void TerminalUi::draw()
     const int width = COLS;
 
     if (height < 8 || width < 42) {
-        safeAdd(0, 0, QStringLiteral("WaffleHouse-CLI %1: terminal too small").arg(appVersionString()), A_BOLD, width);
+        safeAdd(0, 0, QStringLiteral("WaffleHouse-Client-Termux %1: terminal too small").arg(appVersionString()), A_BOLD, width);
         safeAdd(1, 0,
                 QStringLiteral("Current size %1x%2; need at least 42x8.").arg(width).arg(height),
                 0, width);

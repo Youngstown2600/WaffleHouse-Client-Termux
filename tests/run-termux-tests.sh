@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 pass=0; fail=0
 check(){ if eval "$2"; then printf 'PASS: %s\n' "$1"; pass=$((pass+1)); else printf 'FAIL: %s\n' "$1"; fail=$((fail+1)); fi; }
-check "3.2-Termux branding" "grep -q '3.2-Termux' '$ROOT/src/appbranding.h'"
+check "Build 0.5 branding" "grep -q 'Build 0.5' '$ROOT/src/appbranding.h'"
 check "Dedicated Termux entry point" "test -f '$ROOT/src/main_termux.cpp' && test ! -f '$ROOT/src/main.cpp'"
 check "Qt Core/Network only" "grep -q 'COMPONENTS Core Network' '$ROOT/CMakeLists.txt'"
 check "No Qt Widgets" "! grep -Rqs 'Qt6::Widgets' '$ROOT/CMakeLists.txt' '$ROOT/src'"
@@ -45,6 +45,6 @@ check "CLI themes retained" "grep -q 'neon-miami' '$ROOT/src/terminalui.cpp' && 
 check "Termux shared Downloads support" "grep -q 'storage/downloads' '$ROOT/src/terminalui.cpp'"
 check "Android notification audio" "grep -q 'termux-media-player' '$ROOT/src/notificationmanager.cpp'"
 check "Android browser handoff" "grep -q 'termux-open-url' '$ROOT/src/terminalui.cpp'"
-check "Softphone version updated" "grep -q '3.2-Termux' '$ROOT/include/trunkmonkey/Version.h'"
+check "Softphone version updated" "grep -q 'Build 0.5' '$ROOT/include/trunkmonkey/Version.h'"
 printf '\nTermux rebuild parity gate: %d passed, %d failed\n' "$pass" "$fail"
 (( fail == 0 ))

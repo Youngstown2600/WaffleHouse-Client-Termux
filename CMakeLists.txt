@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(WaffleHouseClientTermux VERSION 3.2.0 LANGUAGES CXX)
+project(WaffleHouseClientTermux VERSION 0.5.0 LANGUAGES CXX)
 
-set(APP_DISPLAY_NAME "WaffleHouse-Client" CACHE STRING "Application display name")
+set(APP_DISPLAY_NAME "WaffleHouse-Client-Termux" CACHE STRING "Application display name")
 set(APP_ID "WaffleHouseClient" CACHE STRING "Application settings/config identifier")
 set(APP_EXECUTABLE "wafflehouse-client" CACHE STRING "Executable name")
 
@@ -18,7 +18,7 @@ pkg_check_modules(NCURSESW REQUIRED IMPORTED_TARGET ncursesw)
 pkg_check_modules(PJPROJECT REQUIRED libpjproject)
 
 if(NOT PJPROJECT_VERSION VERSION_EQUAL "2.17")
-    message(FATAL_ERROR "WaffleHouse-Client 3.2-Termux requires PJSIP 2.17; pkg-config reported ${PJPROJECT_VERSION}")
+    message(FATAL_ERROR "WaffleHouse-Client-Termux Build 0.5 requires PJSIP 2.17; pkg-config reported ${PJPROJECT_VERSION}")
 endif()
 if(NOT PJPROJECT_STATIC_LDFLAGS)
     message(FATAL_ERROR "PJSIP static link flags missing. Rebuild managed PJSIP with ./build.sh --pjsip")
@@ -66,7 +66,7 @@ target_compile_definitions(${APP_EXECUTABLE} PRIVATE
     APP_DISPLAY_NAME="${APP_DISPLAY_NAME}"
     APP_ID="${APP_ID}"
     APP_EXECUTABLE="${APP_EXECUTABLE}"
-    APP_VERSION_STRING="3.2-Termux"
+    APP_VERSION_STRING="Build 0.5"
     WAFFLEHOUSE_TERMUX=1
     WAFFLEHOUSE_ANDROID=1
     WAFFLEHOUSE_SOURCE_SOUND_DIR="${CMAKE_CURRENT_SOURCE_DIR}/sounds"
