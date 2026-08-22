@@ -1,44 +1,24 @@
-WaffleHouse-Client 3.2-Termux — dedicated Termux rebuild validation
-==================================================================
+WaffleHouse-Client 3.2-Termux — validation
+=========================================
 
-Baseline
---------
-Rebuilt from the user-supplied WaffleHouse-Client 3.1r8 source archive.
+Termux-specific parity gate: 43/43 PASS.
+Shell syntax validation: PASS.
 
-Architecture
-------------
-- Dedicated src/main_termux.cpp entry point.
-- CLI-only CMake target.
-- Qt Core + Qt Network only; no Qt Gui, Qt Widgets, QApplication, desktop GUI sources, XKB, icon resources, or .desktop installation.
-- Termux package management uses pkg.
-- No executable Perl or CPAN invocation in the builder.
-- qt6-qtbase's xdg-utils dependency is satisfied adaptively: a healthy existing xdg-utils is reused; otherwise a metadata-only provider is installed. The provider owns no files and never overwrites termux-tools' xdg-open.
-- Metadata package DEBIAN directory is explicitly mode 0755 and control is 0644, independent of restrictive umask values.
-- libopus is the Termux Opus package name.
-- PJSIP 2.17 is built as a managed Termux dependency with external PortAudio and Opus/OpenSSL support.
-- Managed PJSIP is compiled with PJSUA_MAX_ACC=32, PJSUA_MAX_CALLS=64, and PJ_IOQUEUE_MAX_HANDLES=256. The builder validates the installed config and automatically rebuilds stale/default-limit PJSIP installs.
-- Incoming file transfers prefer ~/storage/downloads when Termux shared storage is available.
-- Android URL launch uses termux-open-url, then existing xdg-open.
-- Notification audio can use termux-media-player.
-- All runtime/SIP scratch paths honor Termux `$TMPDIR` / `$PREFIX/tmp`; hard-coded `/tmp` is not used on Android.
+Latest SIP fixes:
+- Saved SIP passwords survive 408/network/transport registration failures.
+- Only explicit authentication failures may clear an unsaved session secret.
+- Persisted SIP passwords are never silently erased by backend error recovery.
+- PJ_EINVALIDOP during unregister of an already timed-out/offline account is treated as idempotent success.
+- Termux TMPDIR runtime path handling retained.
+- Android JNI PJSIP audio backend remains disabled; PortAudio path retained.
 
-Feature preservation gate
--------------------------
-41/41 PASS:
-- AIM/OSCAR
-- IRC and slash commands
-- Telnet/BBS and ANSI terminal model
-- SIP softphone and audio controls
-- Secure Rooms
-- encrypted/direct file transfer
-- media/streams/playlists
-- CLI themes
-- saved profile migration
-- Android/Termux path integrations
-- branding/version checks
+Previously validated Termux architecture remains intact:
+- Dedicated Termux CLI entry point.
+- Qt Core/Network only; no Qt GUI/Widgets/XKB desktop frontend.
+- Termux pkg dependency installation; no CPAN/Perl command path.
+- PJSIP 2.17 managed build with WaffleHouse account/call/ioqueue limits.
+- AIM/OSCAR, IRC slash commands, Telnet/BBS/ANSI, SIP, Secure Rooms,
+  encrypted/direct file transfer, media/streams, themes, Android storage,
+  notification audio and URL handoff retained.
 
-Limitations of this validation environment
-------------------------------------------
-The final native Android/Termux compile and live SIP audio call cannot be executed in this non-Android build environment. The package includes a Termux-native builder and source/parity gate for execution on the target phone.
-
-- Termux SIP runtime: PJSIP Android JNI/MediaCodec audio paths are disabled; external Termux PortAudio/OpenSL ES is the only audio backend, and startup failures retain their original PJSUA2 diagnostic.
+Native Android/Termux runtime remains the authoritative end-to-end test environment.

@@ -339,6 +339,15 @@ bool SipController::disconnectAccount(const QString &accountId, QString *error)
         appendActivity(QStringLiteral("SIP account offline: %1").arg(id));
         emit accountStateChanged(id); emit stateChanged(); return true;
     } catch (const pj::Error &e) {
+        // pjsua_acc_set_registration(false) may return PJ_EINVALIDOP after a
+        // registration transaction has already timed out.  Disconnect is
+        // idempotent from the user's perspective: the account is already
+        // offline, so do not surface a scary secondary error.
+        if (e.status == PJ_EINVALIDOP) {
+            appendActivity(QStringLiteral("SIP account already offline: %1").arg(id));
+            emit accountStateChanged(id); emit stateChanged();
+            return true;
+        }
         if (error) *error=pjsipErrorText(e);
         return false;
     } catch (const std::exception &e) {

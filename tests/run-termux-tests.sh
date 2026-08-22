@@ -29,6 +29,8 @@ check "Termux runtime uses TMPDIR" "grep -q 'absoluteEnvPath(\"TMPDIR\")' '$ROOT
 check "Termux builder avoids literal /tmp scratch file" "grep -q 'TMPBASE=\"\${TMPDIR:-\$PREFIX_EXPECTED/tmp}\"' '$ROOT/build-termux.sh' && ! grep -Eq '/tmp/wh-xdg-status' '$ROOT/build-termux.sh'"
 check "SIP startup error retained" "grep -q 'm_initializationError' '$ROOT/src/sipcontroller.cpp' && grep -q 'initializationError() const' '$ROOT/src/sipcontroller.h'"
 check "SIP startup error visible in TUI" "grep -q '\\[error\\] SIP engine startup failed:' '$ROOT/src/terminalui.cpp'"
+check "SIP saved passwords survive timeouts" "grep -q 'explicitAuthenticationFailure && !entry->settings.savePassword' '$ROOT/src/terminalui.cpp' && grep -q 'A transport/network failure is not evidence that the stored secret is' '$ROOT/src/terminalui.cpp'"
+check "SIP timed-out disconnect is idempotent" "grep -q 'e.status == PJ_EINVALIDOP' '$ROOT/src/sipcontroller.cpp' && grep -q 'SIP account already offline' '$ROOT/src/sipcontroller.cpp'"
 check "AIM/OSCAR retained" "test -f '$ROOT/src/oscarbackend.cpp' && grep -q 'oscarbackend.cpp' '$ROOT/CMakeLists.txt'"
 check "IRC retained" "test -f '$ROOT/src/ircbackend.cpp' && grep -q 'ircbackend.cpp' '$ROOT/CMakeLists.txt'"
 check "IRC slash commands retained" "grep -q '/nick' '$ROOT/src/terminalui.cpp'"

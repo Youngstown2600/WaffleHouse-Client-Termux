@@ -3923,16 +3923,36 @@ void TerminalUi::onBackendError(ConnectionEntry *entry,
     connectionStatus(entry,
                      QStringLiteral("[error] %1: %2").arg(context, message));
 
-    if (entry->connecting && entry->secretRequired) {
+    // A transport/network failure is not evidence that the stored secret is
+    // wrong.  In particular, SIP 408 Request Timeout used to fall through this
+    // generic error path, clear SipBackend::m_settings.password, and then a
+    // later saveConnections() rewrote a profile with savePassword=true but no
+    // password value.  That made a perfectly valid saved SIP password vanish
+    // simply because the registrar did not answer.
+    //
+    // Only discard an *unsaved session secret* for an explicit authentication
+    // rejection.  A secret that the user opted to persist is never silently
+    // removed; it can be changed explicitly with /edit.
+    const QString authText = (context + QLatin1Char(' ') + message).toCaseFolded();
+    const bool explicitAuthenticationFailure =
+        authText.contains(QStringLiteral("401"))
+        || authText.contains(QStringLiteral("403"))
+        || authText.contains(QStringLiteral("407"))
+        || authText.contains(QStringLiteral("unauthorized"))
+        || authText.contains(QStringLiteral("forbidden"))
+        || authText.contains(QStringLiteral("authentication failed"))
+        || authText.contains(QStringLiteral("auth failed"))
+        || authText.contains(QStringLiteral("bad password"))
+        || authText.contains(QStringLiteral("invalid password"));
+
+    if (entry->connecting && entry->secretRequired
+        && explicitAuthenticationFailure && !entry->settings.savePassword) {
         entry->hasSessionSecret = false;
-        if (!entry->settings.savePassword) {
-            entry->settings.password.clear();
-        }
+        entry->settings.password.clear();
         if (entry->backend) {
             if (auto *sip = qobject_cast<SipBackend *>(entry->backend)) {
-                // Never re-enter SIP account creation/reconfiguration from an
-                // error callback. The old path recursively retried a failed
-                // initializeAccount() until the CLI stack overflowed.
+                // Clear only an unsaved authentication secret.  Never do this
+                // for timeouts/transport errors or persisted credentials.
                 sip->clearSessionPassword();
             } else {
                 ConnectionSettings cleared = entry->backend->settings();
