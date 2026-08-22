@@ -449,6 +449,18 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
         ec.uaConfig.maxCalls=maxCalls;
         ec.uaConfig.userAgent=WAFFLEHOUSE_SOFTPHONE_USER_AGENT;
         ec.uaConfig.threadCnt=2;
+#ifdef __ANDROID__
+        // Native Termux is not a normal Android APK. Keep RTP/RTCP processing
+        // independent of the hardware sound device so signaling/media sockets
+        // remain healthy even when Android microphone permission is unavailable.
+        ec.medConfig.hasIoqueue=true;
+        ec.medConfig.threadCnt=1;
+        ec.medConfig.channelCount=1;
+        ec.medConfig.audioFramePtime=20;
+        // Re-opening the old Termux/OpenSL device on every idle transition is
+        // both expensive and failure-prone. WaffleHouse explicitly manages it.
+        ec.medConfig.sndAutoCloseTime=-1;
+#endif
         ec.logConfig.level=5;
         ec.logConfig.consoleLevel=0;
         ec.logConfig.msgLogging=1;
@@ -570,6 +582,16 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
 #endif
             if(captureId>=0) audio.setCaptureDev(captureId);
             if(playbackId>=0) audio.setPlaybackDev(playbackId);
+#ifdef __ANDROID__
+            // Critical Termux rule: never let pjsua_call_make_call()/answer()
+            // open OpenSL ES capture as a side effect of creating media. The
+            // Termux host UID may not have RECORD_AUDIO yet, and PortAudio
+            // otherwise aborts the INVITE with paUnanticipatedHostError. A null
+            // device preserves the conference/media clock and RTP stack while
+            // real hardware is activated only after negotiated media is active.
+            audio.setNullDev();
+            logger_.info("[AUDIO] Termux deferred-hardware mode armed (null sound device); SIP/RTP is decoupled from microphone startup");
+#endif
 
             logger_.info("Active PJSIP capture device ID: "+std::to_string(audio.getCaptureDev()));
             logger_.info("Active PJSIP playback device ID: "+std::to_string(audio.getPlaybackDev()));
@@ -1233,12 +1255,30 @@ void SipEngine::reopenAudioDevices()
         audio.setCaptureDev(capture);
         audio.setPlaybackDev(playback);
         // Mode 0 is normal full-duplex immediate-open: neither SPEAKER_ONLY nor
-        // NO_IMMEDIATE_OPEN is set. This is the step r10 was missing.
+        // NO_IMMEDIATE_OPEN is set.
+#ifdef __ANDROID__
+        bool speakerOnly=false;
+        try {
+            audio.setSndDevMode(0);
+        } catch (const pj::Error& fullDuplexError) {
+            // Android microphone permission/device failures must not destroy the
+            // SIP/RTP session. Preserve receive audio when possible.
+            logger_.warn("[AUDIO] Termux full-duplex reopen failed; trying playback-only: "+fullDuplexError.info());
+            audio.setNoDev();
+            audio.setPlaybackDev(playback);
+            audio.setSndDevMode(PJSUA_SND_DEV_SPEAKER_ONLY);
+            speakerOnly=true;
+        }
+        if(!audio.sndIsActive()) throw std::runtime_error("PJSIP did not report the reopened sound device as active");
+        logger_.info("[AUDIO] Reopened: capture="+audioDeviceLabel(refreshed,audio.getCaptureDev())+
+                     " playback="+audioDeviceLabel(refreshed,audio.getPlaybackDev())+
+                     (speakerOnly?" status=PLAYBACK_ONLY":" status=FULL_DUPLEX"));
+#else
         audio.setSndDevMode(0);
         if(!audio.sndIsActive()) throw std::runtime_error("PJSIP did not report the reopened sound device as active");
-
         logger_.info("[AUDIO] Reopened: capture="+audioDeviceLabel(refreshed,audio.getCaptureDev())+
                      " playback="+audioDeviceLabel(refreshed,audio.getPlaybackDev())+" status=ACTIVE");
+#endif
     }catch(const pj::Error& e){
         logger_.warn("[AUDIO] PJSIP reopen failed: "+e.info());
         if(foreground){try{foreground->attachAudio();}catch(...){}}

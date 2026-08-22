@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
     parser.process(app);
 
     if (parser.isSet(QStringLiteral("gui"))) {
-        std::fprintf(stderr, "WaffleHouse-Client-Termux Build 0.7 is a native terminal build; --gui is not available.\n");
+        std::fprintf(stderr, "WaffleHouse-Client-Termux Build 0.8 is a native terminal build; --gui is not available.\n");
         return 2;
     }
 

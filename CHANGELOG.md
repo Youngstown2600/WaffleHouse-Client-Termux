@@ -1,8 +1,20 @@
+## Build 0.8 — Termux RTP/audio hardening
+
+- Audited the complete SIP media path after Build 0.7 achieved successful REGISTER/200 OK.
+- Termux now starts PJSIP on the null sound device so Android/OpenSL capture failures cannot abort INVITE creation or RTP socket setup.
+- RTP/RTCP keeps its own PJSIP media ioqueue and worker thread; call telemetry retains local/remote RTP+RTCP, packet/loss/discard, jitter, RTT, jitter-buffer delay, codec and clock-rate reporting.
+- Real audio hardware is activated only after negotiated call media becomes active.
+- Full-duplex microphone failure falls back to speaker-only playback instead of tearing the call down.
+- Capture-bridge failures are isolated from playback and the SIP/RTP session.
+- `/audio-reopen` now has the same Termux playback-only fallback when full-duplex capture cannot be opened.
+- Installs `wafflehouse-audio-preflight`, a one-second Android microphone permission/capture test using the Termux:API add-on.
+- The Termux:API Android add-on must be installed from the same signing source as Termux and granted Microphone permission for native OpenSL capture.
+
 ## Build 0.7 — native Termux SIP transaction identifiers
 
 - Fixed the root cause of Termux SIP REGISTER 408 timeouts: PJSIP's Android target selected `guid_android.c`, whose UUID generator requires a Java/JNI VM. Native Termux has no JVM, leaving Via branch suffixes zero-filled and Call-ID/From tags empty.
 - The managed PJSIP 2.17 build now forces upstream `guid_simple.o` for the Termux target while retaining the otherwise-working Android/PJLIB configuration.
-- Cached managed PJSIP installs are accepted only when they carry the Termux native-GUID marker, so Build 0.7 automatically rebuilds the stale JNI-GUID PJSIP used by Build 0.6.
+- Cached managed PJSIP installs are accepted only when they carry the Termux native-GUID marker, so Build 0.8 automatically rebuilds the stale JNI-GUID PJSIP used by Build 0.6.
 - Added post-configure verification that `guid_android.o` is absent and `guid_simple.o` is present in PJLIB's selected objects.
 - Added a runtime GUID sanity check before SIP endpoint initialization so malformed transaction identifiers fail loudly rather than producing silent 408s.
 

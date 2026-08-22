@@ -651,7 +651,7 @@ void TerminalUi::requestClientVersion(ConnectionEntry *entry, QString target)
     QTimer::singleShot(3500, this, [this, key, target, protocol] {
         if (!m_pendingVersionQueries.remove(key)) return;
         status(protocol == ConnectionSettings::Protocol::Oscar
-            ? QStringLiteral("[version] %1: no Build 0.7 reply; peer may be an older WaffleHouse/CPX client or another AIM client (exact version unavailable)").arg(target)
+            ? QStringLiteral("[version] %1: no Build 0.8 reply; peer may be an older WaffleHouse/CPX client or another AIM client (exact version unavailable)").arg(target)
             : QStringLiteral("[version] %1: no CTCP VERSION reply received").arg(target));
     });
     if (auto *irc = qobject_cast<IrcBackend *>(entry->backend)) {

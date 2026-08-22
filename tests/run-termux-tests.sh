@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 pass=0; fail=0
 check(){ if eval "$2"; then printf 'PASS: %s\n' "$1"; pass=$((pass+1)); else printf 'FAIL: %s\n' "$1"; fail=$((fail+1)); fi; }
-check "Build 0.7 branding" "grep -q 'Build 0.7' '$ROOT/src/appbranding.h'"
+check "Build 0.8 branding" "grep -q 'Build 0.8' '$ROOT/src/appbranding.h'"
 check "Dedicated Termux entry point" "test -f '$ROOT/src/main_termux.cpp' && test ! -f '$ROOT/src/main.cpp'"
 check "Qt Core/Network only" "grep -q 'COMPONENTS Core Network' '$ROOT/CMakeLists.txt'"
 check "No Qt Widgets" "! grep -Rqs 'Qt6::Widgets' '$ROOT/CMakeLists.txt' '$ROOT/src'"
@@ -48,7 +48,13 @@ check "CLI themes retained" "grep -q 'neon-miami' '$ROOT/src/terminalui.cpp' && 
 check "Termux shared Downloads support" "grep -q 'storage/downloads' '$ROOT/src/terminalui.cpp'"
 check "Android notification audio" "grep -q 'termux-media-player' '$ROOT/src/notificationmanager.cpp'"
 check "Android browser handoff" "grep -q 'termux-open-url' '$ROOT/src/terminalui.cpp'"
+check "Termux SIP/RTP decoupled from audio hardware" "grep -q 'Termux deferred-hardware mode armed' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'audio.setNullDev()' '$ROOT/src/sipcore/SipEngine.cpp'"
+check "Termux media owns RTP ioqueue" "grep -q 'ec.medConfig.hasIoqueue=true' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'ec.medConfig.threadCnt=1' '$ROOT/src/sipcore/SipEngine.cpp'"
+check "Termux audio full-duplex fallback" "grep -q 'trying speaker-only' '$ROOT/src/sipcore/CallSession.cpp' && grep -q 'PJSUA_SND_DEV_SPEAKER_ONLY' '$ROOT/src/sipcore/CallSession.cpp'"
+check "Capture failure preserves active call" "grep -q 'call remains active' '$ROOT/src/sipcore/CallSession.cpp'"
+check "RTP telemetry retained" "grep -q 'localRtpAddress' '$ROOT/src/sipcore/CallSession.cpp' && grep -q 'getStreamStat' '$ROOT/src/sipcore/CallSession.cpp' && grep -q 'getMedTransportInfo' '$ROOT/src/sipcore/CallSession.cpp'"
+check "Android microphone permission preflight installed" "test -x '$ROOT/scripts/termux-audio-preflight.sh' && grep -q 'wafflehouse-audio-preflight' '$ROOT/CMakeLists.txt' && grep -q 'termux-microphone-record' '$ROOT/scripts/termux-audio-preflight.sh'"
 check "Global SIP registration trace" "grep -q 'recentSipTrace() const' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'recentSip_.push_back(entry)' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'recentSipTrace()' '$ROOT/src/sipcontroller.cpp'"
-check "Softphone version updated" "grep -q 'Build 0.7' '$ROOT/include/trunkmonkey/Version.h'"
+check "Softphone version updated" "grep -q 'Build 0.8' '$ROOT/include/trunkmonkey/Version.h'"
 printf '\nTermux rebuild parity gate: %d passed, %d failed\n' "$pass" "$fail"
 (( fail == 0 ))

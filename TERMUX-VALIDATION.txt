@@ -1,26 +1,44 @@
-WaffleHouse-Client-Termux Build 0.7 — validation
-=========================================
+WaffleHouse-Client-Termux Build 0.8 — RTP/audio source audit
+============================================================
 
-Termux-specific parity gate: 47/47 PASS.
-Shell syntax validation: PASS.
+Scope
+-----
+This audit was performed after Build 0.7 successfully registered to the PBX
+(200 OK) but pjsua_call_make_call() failed while Termux PortAudio/OpenSL ES
+attempted to initialize microphone capture.
 
-Build 0.7 SIP registration fix:
-- Build 0.6 wire trace proved REGISTER was transmitted to the expected PBX from the expected local address, but its Via branch contained NUL bytes, Call-ID was empty, and the From tag was missing.
-- Those fields all depend on PJLIB unique-ID generation. PJSIP 2.17 selects guid_android.o for Android targets; that backend obtains java.util.UUID through JNI and therefore cannot generate identifiers in a native Termux process with no Java VM.
-- The managed Termux PJSIP build now substitutes upstream guid_simple.o for guid_android.o while preserving the Android platform target and the working PortAudio configuration.
-- Post-configure validation refuses to build if guid_android.o remains selected.
-- A managed-install marker forces existing Build 0.6 PJSIP prefixes to rebuild automatically.
-- WaffleHouse also performs a PJLIB GUID sanity check at SIP startup and refuses to transmit if unique IDs are empty, NUL-filled, or otherwise non-printable.
+RTP/RTCP source review
+----------------------
+PASS: PJMEDIA owns a dedicated media ioqueue and one RTP worker thread.
+PASS: SIP/RTP creation is decoupled from Android hardware audio by starting
+      Termux on PJSIP's null sound device.
+PASS: Call diagnostics retain local/remote RTP and RTCP addresses.
+PASS: Call diagnostics retain codec/clock rate, TX/RX packets and bytes,
+      loss/discard, jitter, RTT and jitter-buffer delay.
+PASS: Existing optional STUN, ICE and SRTP account plumbing is retained.
+PASS: RFC2833 DTMF path is retained.
 
-Previously validated fixes retained:
-- Global /siplog registration trace for REGISTER/401/200 and other endpoint SIP traffic.
-- Saved SIP passwords survive 408/network/transport registration failures.
-- PJ_EINVALIDOP/PJSIP_EBUSY cleanup is handled without turning a registration timeout into a second user-facing failure.
-- Termux TMPDIR runtime path handling.
-- Android JNI PJSIP audio backend disabled; PortAudio path retained.
-- Dedicated Termux CLI entry point; Qt Core/Network only.
-- Termux pkg dependency installation; no CPAN/Perl command path.
-- PJSIP 2.17 managed build with WaffleHouse account/call/ioqueue limits.
-- AIM/OSCAR, IRC slash commands, Telnet/BBS/ANSI, SIP, Secure Rooms, encrypted/direct file transfer, media/streams, themes, Android storage, notification audio and URL handoff retained.
+Audio I/O hardening
+-------------------
+PASS: Hardware audio is deferred until negotiated call media is active.
+PASS: A microphone/full-duplex failure no longer aborts INVITE creation.
+PASS: Failed capture falls back to playback-only mode when Android output can open.
+PASS: If playback also fails, RTP stays alive on the null device rather than
+      terminating the call.
+PASS: /audio-reopen uses a playback-only fallback on Termux.
+PASS: Capture and playback bridge attachment errors are isolated.
+PASS: Installed helper `wafflehouse-audio-preflight` performs a one-second
+      Termux:API microphone permission/capture test.
 
-Native Android/Termux runtime remains the authoritative end-to-end test environment.
+Important Android limitation
+----------------------------
+The normal Termux application does not itself declare RECORD_AUDIO. Native
+OpenSL ES microphone access therefore depends on the matching Termux:API Android
+add-on/shared Termux UID having microphone permission. `pkg install termux-api`
+installs the command-line client only, not the Android add-on APK.
+
+Validation
+----------
+Termux parity/static source gate: 53/53 PASS.
+All project shell scripts: bash -n PASS.
+Native Android call/RTP/audio runtime still requires testing on the target phone.
