@@ -1,5 +1,11 @@
-#!/data/data/com.termux/files/usr/bin/sh
+#!/bin/sh
 set -eu
+
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-echo "WaffleHouse-Client 3.2-Termux: clean rebuild/update"
-exec sh "$ROOT_DIR/build.sh" --upgrade "$@"
+
+cat <<'EOF2'
+WaffleHouse-Client: client-up.sh is now a compatibility wrapper.
+Upgrade/uninstall logic lives in build.sh so there is only one lifecycle path to maintain.
+EOF2
+
+exec "$ROOT_DIR/build.sh" --upgrade "$@"

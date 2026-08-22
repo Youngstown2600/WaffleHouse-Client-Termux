@@ -196,10 +196,9 @@ bool NotificationManager::launchPlayer(const QString &path)
     if (path.isEmpty() || !QFileInfo::exists(path)) return false;
 
 #ifdef WAFFLEHOUSE_TERMUX
-    const QString termuxPlayer = QStandardPaths::findExecutable(QStringLiteral("termux-media-player"));
-    if (!termuxPlayer.isEmpty()) {
-        if (QProcess::startDetached(termuxPlayer, {QStringLiteral("play"), path})) return true;
-    }
+    const QString termuxMedia = QStandardPaths::findExecutable(QStringLiteral("termux-media-player"));
+    if (!termuxMedia.isEmpty())
+        return QProcess::startDetached(termuxMedia, {QStringLiteral("play"), path});
 #endif
 
     const QString paplay = QStandardPaths::findExecutable(QStringLiteral("paplay"));

@@ -11,7 +11,6 @@
 #include <QPair>
 #include <QSet>
 #include <QSettings>
-#include <QStringList>
 #include <QVariant>
 
 #include <cstdio>
@@ -68,7 +67,7 @@ QList<StoredProfile> readProfiles(QSettings &settings)
     return out;
 }
 
-void migrateLegacyWaffleHouseProfiles()
+void migrateLegacyProfiles()
 {
     QSettings current;
     if (current.value(QStringLiteral("connections/size"), 0).toInt() > 0) return;
@@ -82,13 +81,11 @@ void migrateLegacyWaffleHouseProfiles()
 
     for (const auto &store : stores) {
         QSettings legacy(store.first, store.second);
-        const QList<StoredProfile> profiles = readProfiles(legacy);
-        for (StoredProfile profile : profiles) {
+        for (StoredProfile profile : readProfiles(legacy)) {
             if (seen.contains(profile.dedupeKey)) continue;
             seen.insert(profile.dedupeKey);
             if (profile.values.value(QStringLiteral("id")).toString().trimmed().isEmpty()) {
-                profile.values.insert(
-                    QStringLiteral("id"),
+                profile.values.insert(QStringLiteral("id"),
                     QStringLiteral("migrated-%1").arg(QString::fromLatin1(
                         QCryptographicHash::hash(profile.dedupeKey.toUtf8(), QCryptographicHash::Sha256)
                             .left(16).toHex())));
@@ -102,9 +99,8 @@ void migrateLegacyWaffleHouseProfiles()
     current.beginWriteArray(QStringLiteral("connections"));
     for (int i = 0; i < merged.size(); ++i) {
         current.setArrayIndex(i);
-        for (auto it = merged.at(i).values.constBegin(); it != merged.at(i).values.constEnd(); ++it) {
+        for (auto it = merged.at(i).values.constBegin(); it != merged.at(i).values.constEnd(); ++it)
             current.setValue(it.key(), it.value());
-        }
     }
     current.endArray();
     current.setValue(QStringLiteral("migration/legacyWaffleHouseProfiles"), true);
@@ -119,34 +115,26 @@ int main(int argc, char *argv[])
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        QStringLiteral("WaffleHouse-Client %1 for Termux — AIM/OSCAR, IRC, Telnet/BBS, SIP/VoIP, secure rooms, file transfer, media and streaming")
+        QStringLiteral("WaffleHouse-Client %1 for Termux — AIM/OSCAR, IRC, Telnet/BBS, SIP/VoIP, secure rooms, file transfer and media")
             .arg(appVersionString()));
     parser.addHelpOption();
     parser.addVersionOption();
-    const QCommandLineOption cliOption(QStringList{QStringLiteral("cli")},
-                                       QStringLiteral("Force CLI mode (the Termux default)."));
-    const QCommandLineOption guiOption(QStringList{QStringLiteral("gui")},
-                                       QStringLiteral("Request GUI mode (not included in the Termux build)."));
-    parser.addOption(cliOption);
-    parser.addOption(guiOption);
+    parser.addOption(QCommandLineOption(QStringList{QStringLiteral("cli")}, QStringLiteral("Compatibility option; Termux is CLI-only.")));
+    parser.addOption(QCommandLineOption(QStringList{QStringLiteral("gui")}, QStringLiteral("Unsupported on the Termux build.")));
     parser.process(app);
-    if (parser.isSet(guiOption)) {
-        std::fprintf(stderr,
-                     "WaffleHouse-Client %s is the Termux CLI build; GUI mode is not included.\n",
-                     appVersionString().toUtf8().constData());
+
+    if (parser.isSet(QStringLiteral("gui"))) {
+        std::fprintf(stderr, "WaffleHouse-Client 3.2-Termux is a native terminal build; --gui is not available.\n");
         return 2;
     }
 
-    migrateLegacyWaffleHouseProfiles();
-
+    migrateLegacyProfiles();
     const RuntimeEnvironment runtime = RuntimeEnvironment::detect();
     TerminalUi ui;
     QObject::connect(&ui, &TerminalUi::finished, &app, &QCoreApplication::quit);
     if (!ui.start()) {
-        std::fprintf(stderr,
-                     "WaffleHouse-Client %s: Termux terminal frontend could not start.\nDetected: %s\n",
-                     appVersionString().toUtf8().constData(),
-                     runtime.summary().toUtf8().constData());
+        std::fprintf(stderr, "WaffleHouse-Client %s: terminal frontend could not start.\nDetected: %s\n",
+                     appVersionString().toUtf8().constData(), runtime.summary().toUtf8().constData());
         return 1;
     }
     return app.exec();

@@ -6,7 +6,6 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 DEFAULT_PJSIP_SOURCE="$ROOT_DIR/third_party/pjproject"
 USER_HOME=${HOME:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
-TERMUX_APP_PREFIX=${PREFIX:-}
 PREFIX=${2:-$USER_HOME/.local/wafflehouse-pjsip}
 
 if [ -z "$SRC" ] || [ ! -d "$SRC" ]; then
@@ -22,15 +21,7 @@ mkdir -p "$PREFIX"
 rm -f "$PREFIX/.wafflehouse-pjsip-build"
 
 HOST_OS=$(uname -s)
-if [ -n "${TERMUX_VERSION:-}" ] || [ "${TERMUX_APP_PREFIX:-}" = "/data/data/com.termux/files/usr" ]; then
-  HOST_OS=Termux
-fi
 case "$HOST_OS" in
-  Termux)
-    MAKE=make
-    TM_CC=${CC:-clang}
-    TM_CXX=${CXX:-clang++}
-    ;;
   Linux)
     MAKE=make
     TM_CC=${CC:-cc}
@@ -191,16 +182,6 @@ cat > pjlib/include/pj/config_site.h <<'CONFIG'
 #define PJMEDIA_HAS_VIDEO 0
 CONFIG
 
-if [ "$HOST_OS" = Termux ]; then
-  cat >> pjlib/include/pj/config_site.h <<'CONFIG'
-/* Termux: audio is provided by the packaged PortAudio OpenSL ES backend. */
-#undef PJMEDIA_HAS_WEBRTC_AEC
-#define PJMEDIA_HAS_WEBRTC_AEC 0
-#undef PJMEDIA_HAS_WEBRTC_AEC3
-#define PJMEDIA_HAS_WEBRTC_AEC3 0
-CONFIG
-fi
-
 if [ "$HOST_OS" = FreeBSD ]; then
   cat >> pjlib/include/pj/config_site.h <<'CONFIG'
 /* PJSIP 2.17's legacy WebRTC AEC archive is not reliably linkable on FreeBSD/x86_64
@@ -219,35 +200,7 @@ fi
 PIC_CFLAGS="${CFLAGS:+$CFLAGS }-fPIC"
 PIC_CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fPIC"
 
-if [ "$HOST_OS" = Termux ]; then
-  LOCALBASE=${TERMUX_APP_PREFIX:-/data/data/com.termux/files/usr}
-  PC=${PKG_CONFIG:-pkg-config}
-  for spec in "portaudio-2.0:portaudio:Android OpenSL ES audio" "opus:libopus:Opus codec" "openssl:openssl:TLS/SRTP crypto" "uuid:libuuid:SIP GUID generation"; do
-    module=${spec%%:*}; rest=${spec#*:}; package=${rest%%:*}; purpose=${rest#*:}
-    if ! "$PC" --exists "$module" 2>/dev/null; then
-      echo "Termux PJSIP requires $package ($purpose). Install it with: pkg install $package" >&2
-      exit 1
-    fi
-  done
-
-  echo "Configuring PJSIP 2.17 for Termux with external PortAudio/OpenSL ES..."
-  CFLAGS="-fPIC -I$LOCALBASE/include" \
-  CXXFLAGS="-fPIC -I$LOCALBASE/include" \
-  CPPFLAGS="-I$LOCALBASE/include" \
-  LDFLAGS="-L$LOCALBASE/lib" \
-  CC="$TM_CC" CXX="$TM_CXX" \
-    ./configure --prefix="$PREFIX" --disable-video --with-external-pa \
-      --with-opus="$LOCALBASE" --disable-libwebrtc --disable-upnp \
-      --disable-opencore-amr --disable-silk --disable-libyuv --disable-sdl \
-      --disable-ffmpeg --disable-openh264 --disable-vpx
-
-  # PJSIP's generic Unix metadata may advertise libstdc++; Termux uses libc++.
-  if grep -q -- '-lstdc++' build.mak 2>/dev/null; then
-    tmp_mak="build.mak.wafflehouse.$$"
-    sed 's/-lstdc++/-lc++/g' build.mak > "$tmp_mak"
-    mv "$tmp_mak" build.mak
-  fi
-elif [ "$HOST_OS" = FreeBSD ]; then
+if [ "$HOST_OS" = FreeBSD ]; then
   LOCALBASE=${LOCALBASE:-/usr/local}
   if command -v pkg-config >/dev/null 2>&1; then
     PC=pkg-config
@@ -371,15 +324,6 @@ mkdir -p "$PREFIX"
 "$MAKE" install
 
 case "$HOST_OS" in
-  Termux)
-    TM_OS=termux
-    pc="$PREFIX/lib/pkgconfig/libpjproject.pc"
-    [ -f "$pc" ] || { echo "PJSIP install did not create $pc" >&2; exit 1; }
-    if grep -q -- '-lstdc++' "$pc"; then
-      sed 's/-lstdc++/-lc++/g' "$pc" > "$pc.tmp" && mv "$pc.tmp" "$pc"
-    fi
-    BUILD_ID="2.17-wafflehouse-acc32-call64-pic-termux-$(uname -m 2>/dev/null || echo unknown)-v1"
-    ;;
   Linux)
     TM_OS=linux
     BUILD_ID="2.17-wafflehouse-acc32-call64-pic-linux-$(uname -m 2>/dev/null || echo unknown)-v10"
@@ -418,10 +362,7 @@ printf '%s\n' "$BUILD_ID" > "$PREFIX/.wafflehouse-pjsip-build"
 echo
 echo "PJSIP installed to $PREFIX"
 echo "PJSUA_MAX_ACC is configured for 32; PJSUA_MAX_CALLS is configured for 64; PJ_IOQUEUE_MAX_HANDLES is configured for 256."
-if [ "$HOST_OS" = Termux ]; then
-  echo "Termux audio backend: external PortAudio using the Termux OpenSL ES host API."
-  echo "Grant microphone permission to the matching Termux:API app for SIP capture."
-elif [ "$HOST_OS" = Windows ]; then
+if [ "$HOST_OS" = Windows ]; then
   echo "Windows audio backend: PJSIP native Windows audio backend."
   echo "Windows CLI/GUI use the same PJSUA2 core as Linux/FreeBSD."
 elif [ "$HOST_OS" = FreeBSD ]; then

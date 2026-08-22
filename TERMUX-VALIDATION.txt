@@ -1,0 +1,40 @@
+WaffleHouse-Client 3.2-Termux — dedicated Termux rebuild validation
+==================================================================
+
+Baseline
+--------
+Rebuilt from the user-supplied WaffleHouse-Client 3.1r8 source archive.
+
+Architecture
+------------
+- Dedicated src/main_termux.cpp entry point.
+- CLI-only CMake target.
+- Qt Core + Qt Network only; no Qt Gui, Qt Widgets, QApplication, desktop GUI sources, XKB, icon resources, or .desktop installation.
+- Termux package management uses pkg.
+- No executable Perl or CPAN invocation in the builder.
+- qt6-qtbase's xdg-utils dependency is satisfied adaptively: a healthy existing xdg-utils is reused; otherwise a metadata-only provider is installed. The provider owns no files and never overwrites termux-tools' xdg-open.
+- Metadata package DEBIAN directory is explicitly mode 0755 and control is 0644, independent of restrictive umask values.
+- libopus is the Termux Opus package name.
+- PJSIP 2.17 is built as a managed Termux dependency with external PortAudio and Opus/OpenSSL support.
+- Incoming file transfers prefer ~/storage/downloads when Termux shared storage is available.
+- Android URL launch uses termux-open-url, then existing xdg-open.
+- Notification audio can use termux-media-player.
+
+Feature preservation gate
+-------------------------
+34/34 PASS:
+- AIM/OSCAR
+- IRC and slash commands
+- Telnet/BBS and ANSI terminal model
+- SIP softphone and audio controls
+- Secure Rooms
+- encrypted/direct file transfer
+- media/streams/playlists
+- CLI themes
+- saved profile migration
+- Android/Termux path integrations
+- branding/version checks
+
+Limitations of this validation environment
+------------------------------------------
+The final native Android/Termux compile and live SIP audio call cannot be executed in this non-Android build environment. The package includes a Termux-native builder and source/parity gate for execution on the target phone.

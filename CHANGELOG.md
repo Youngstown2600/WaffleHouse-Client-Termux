@@ -1,24 +1,6 @@
-# WaffleHouse-Client 3.2-Termux — 2026-08-22
+# WaffleHouse-Client 3.1r8 “Termux” — YouTube feature removal — 2026-08-22
 
-### 3.2-Termux dependency hotfix
-
-- Corrected the Termux Opus package name from `opus` to `libopus`.
-- Kept the pkg-config module check as `opus`, which is the module exported by libopus.
-- Added a Termux package-name preflight before dependency installation so unavailable package names are reported clearly.
-
-
-- Added dedicated Android/Termux CLI target and builder.
-- Removed the former edition branding while retaining the media/radio feature set.
-- Preserved AIM/OSCAR, IRC, Telnet/BBS, Secure Rooms/DM, file transfer, SIP softphone, themes, notifications and media controls.
-- Added compact narrow-terminal startup presentation and `/menu` command map.
-- Added Termux shared-Downloads default for accepted file transfers.
-- Added Termux notification playback path.
-- Added managed PJSIP 2.17 Termux build using external PortAudio/OpenSL ES.
-- Removed the CPAN dependency from the Termux build path. The builder now satisfies Qt's `xdg-utils` dependency with a minimal local Termux compatibility provider and no Perl install.
-
-# WaffleHouse-Client 3.1r8 WaffleHouse media — YouTube feature removal — 2026-08-22
-
-- Removed the dedicated YouTube Audio button from the WaffleHouse Media Center GUI.
+- Removed the dedicated YouTube Audio button from the WaffleHouse Media Media Center GUI.
 - Removed the YouTube Audio action from the main Media menu.
 - Removed the `/myoutube` command from CLI parsing, help, and command completion.
 - Removed WaffleHouse Media's yt-dlp resolver, QProcess resolver state, YouTube URL normalization, Deno/Node runtime integration, and yt-dlp dependency checks/install steps.
@@ -26,7 +8,7 @@
 - Kept local audio/video, direct HTTP/HTTPS/HLS streams, SHOUTcast/Icecast, playlists, queue controls, EQ, SIP/AIM/IRC/Telnet, Secure Rooms, and file-transfer features.
 - Kept the Stop → Play behavior: Stop preserves the queue and Play/Resume restarts the first queued item when playback is idle.
 
-# WaffleHouse-Client 3.1r7 WaffleHouse media — YouTube runtime/headers + Stop→Play queue hotfix — 2026-08-22
+# WaffleHouse-Client 3.1r7 “Termux” — YouTube runtime/headers + Stop→Play queue hotfix — 2026-08-22
 
 - Fixed the `QIODevice::read (QProcess): device not open` warnings by removing stdout/stderr reads before the asynchronous yt-dlp `QProcess` is started.
 - Updated the builder for current YouTube extraction requirements: refresh the official yt-dlp Unix executable, install/use Deno 2.3+ where possible, and explicitly hand the JS runtime path to yt-dlp.
@@ -36,20 +18,20 @@
 - Preserved single-video normalization for YouTube radio/mix URLs, native AF_UNIX mpv IPC, HLS/SHOUTcast support, SIP/IRC/AIM/Telnet features, and existing CPX/Secure Room/file-transfer wire compatibility.
 - Source regression suite passes 33/33 tests.
 
-# WaffleHouse-Client 3.1r6 WaffleHouse media — portable direct YouTube resolver — 2026-08-21
+# WaffleHouse-Client 3.1r6 “Termux” — portable direct YouTube resolver — 2026-08-21
 
 - Replaced mpv's internal `ytdl://` hook as the primary YouTube path. WaffleHouse Media now invokes `yt-dlp` directly with `QProcess`, parses the selected best-audio JSON, and hands the resolved direct media URL to mpv.
 - Added a resolver fallback to `python3 -m yt_dlp` for Slackware, user/virtualenv installs, and other systems where the Python module exists without a wrapper executable.
 - Added explicit Debian-family, Fedora/dnf, Slackware, and FreeBSD dependency/build coverage while keeping one distro-neutral runtime media path.
 - Preserved the 3.1r4 Stop/queue behavior, HLS and SHOUTcast playback, SHOUTcast directory search, native AF_UNIX mpv IPC, and all existing CPX/Secure Room/file-transfer encryption wire implementations.
 
-# WaffleHouse-Client 3.1r4 WaffleHouse media — SHOUTcast compile hotfix — 2026-08-21
+# WaffleHouse-Client 3.1r4 “Termux” — SHOUTcast compile hotfix — 2026-08-21
 
 - Fixed a compile-breaking raw newline inside the SHOUTcast directory fallback `QStringLiteral` in `src/mediawindow.cpp`; the message now uses an escaped `\n`.
 - Added a source regression guard for accidental newline-spanning ordinary string literals and the exact SHOUTcast fallback text.
 - Preserved all 3.1r3 playback, YouTube, HLS, SHOUTcast, queue, IPC, IRC slash-command, Secure Room, SIP, and encryption compatibility behavior.
 
-# WaffleHouse-Client 3.1r3 WaffleHouse media — playback queue + YouTube + SHOUTcast search — 2026-08-21
+# WaffleHouse-Client 3.1r3 “Termux” — playback queue + YouTube + SHOUTcast search — 2026-08-21
 
 - Changed Stop to mpv `stop keep-playlist`, preserving local files, HLS streams, and SHOUTcast entries in Playlist/Queue.
 - Resume now restarts the current stopped playlist entry when mpv is idle.
@@ -57,7 +39,7 @@
 - Added SHOUTcast Directory search to the Media Center, Media menu, and CLI `/mshoutcast TERMS`; search opens `directory.shoutcast.com` in the user's browser.
 - Preserved all WaffleHouse CPX/Secure Room/file-transfer encryption implementations and the 3.1r2 native AF_UNIX mpv control transport.
 
-# WaffleHouse-Client 3.1r2 WaffleHouse media — native mpv IPC hotfix 2 — 2026-08-21
+# WaffleHouse-Client 3.1r2 Termux — native mpv IPC hotfix 2 — 2026-08-21
 
 - Fixed Qt6 compilation of the native mpv IPC notifier by connecting `QSocketNotifier::activated` directly instead of using an invalid two-argument `QOverload` selector (Qt6 carries an internal `QPrivateSignal` parameter).
 - Fixed the reproduced `QLocalSocket::connectToServer: Invalid name` failure that prevented both local files and internet media from reaching mpv on affected Linux/FreeBSD Qt builds.
@@ -67,7 +49,7 @@
 - Added a regression assertion that fails if QLocalSocket is reintroduced into the WaffleHouse Media mpv controller.
 - Existing CPX encryption, file-transfer encryption, and Secure Room wire implementations remain unchanged.
 
-# WaffleHouse-Client 3.1r2 WaffleHouse media — media/streams + testing-safe install — 2026-08-21
+# WaffleHouse-Client 3.1r2 “Termux” — media/streams + testing-safe install — 2026-08-21
 
 - Rebuilt WaffleHouse Media from the latest uploaded WaffleHouse-Client 3.1 IRC-slash-command source rather than from the older 3.0r2 media branch.
 - Added mpv-backed local audio/video playback, SHOUTcast/Icecast/HTTP/HLS streams, M3U/M3U8/PLS playlists, YouTube audio-only via yt-dlp, queue controls, shuffle/repeat, seek, volume/mute, and a 10-band EQ in both GUI and CLI workflows.

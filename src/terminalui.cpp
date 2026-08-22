@@ -17,9 +17,6 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
-#ifndef WAFFLEHOUSE_TERMUX
-#include <QDesktopServices>
-#endif
 #include <QProcess>
 #include <QDir>
 #include <QFileInfo>
@@ -70,22 +67,6 @@ QStringList cliThemeNames()
         QStringLiteral("dos"), QStringLiteral("waffle-iron"), QStringLiteral("ghostline"),
         QStringLiteral("hot-dog-stand"), QStringLiteral("neon-miami")
     };
-}
-
-int fitDialogWidth(int desired, int preferredMin, int preferredMax)
-{
-    const int available = std::max(12, COLS - 2);
-    const int high = std::min(preferredMax, available);
-    const int low = std::min(preferredMin, high);
-    return std::clamp(desired, low, high);
-}
-
-int fitDialogHeight(int desired, int preferredMin, int preferredMax)
-{
-    const int available = std::max(6, LINES - 2);
-    const int high = std::min(preferredMax, available);
-    const int low = std::min(preferredMin, high);
-    return std::clamp(desired, low, high);
 }
 
 bool isTerminalBackspace(uint codepoint)
@@ -177,13 +158,13 @@ bool TerminalUi::start()
     Buffer *global = ensureBuffer(QStringLiteral("global"), {}, {},
                                   QStringLiteral("Status"), true);
     append(global,
-           QStringLiteral("WaffleHouse-Client %1 for Termux started. /help shows commands; /menu shows the compact command map.").arg(appVersionString()),
+           QStringLiteral("WaffleHouse-Client %1 started in Termux. /help shows commands. /options configures the TUI.").arg(appVersionString()),
            false);
     append(global,
            QStringLiteral("Runtime: %1").arg(RuntimeEnvironment::detect().summary()),
            false);
     append(global,
-           QStringLiteral("Media engine: %1. Use /media for status; /mstream plays internet radio/streams.")
+           QStringLiteral("WaffleHouse Media media engine: %1. Use /media for status; /mstream plays internet radio/streams.")
                .arg(m_mediaController->backendAvailable()
                         ? QStringLiteral("mpv ready")
                         : QStringLiteral("mpv not found")),
@@ -532,45 +513,30 @@ void TerminalUi::showSplash()
     erase();
     curs_set(0);
 
-    QStringList logo;
-    QString subtitle;
-    QString protocols;
-    QString hint;
-    if (COLS < 72) {
-        logo = {
-            QStringLiteral("WAFFLEHOUSE-CLIENT"),
-            QStringLiteral("3.2-TERMUX"),
-        };
-        subtitle = QStringLiteral("MULTI-PROTOCOL TERMINAL");
-        protocols = QStringLiteral("AIM | IRC | BBS | SIP");
-        hint = QStringLiteral("Press a key - /menu for commands");
-    } else {
-        logo = {
-            QStringLiteral("▄     ▄  ▄▄▄▄▄  ▄▄▄▄▄▄ ▄▄▄▄▄▄ ▄      ▄▄▄▄▄▄ ▄     ▄  ▄▄▄▄▄▄ ▄     ▄  ▄▄▄▄▄▄ ▄▄▄▄▄▄"),
-            QStringLiteral("█     █ █     █ █      █      █      █      █     ▄ █     ▄ █     █ █       █     "),
-            QStringLiteral("█  ▄  ▄ █▄▄▄▄▄▀ █▄▄▄   █▄▄▄   █      █▄▄▄   █▀▀▀▀▀█ █     ▄ █     ▄ █▄▄▄▄▄▄ █▄▄▄  "),
-            QStringLiteral("▄  ▀  █ █     ▀ ▄      ▄      █      ▄      █     ▀ █     █ ▄     █       ▀ ▄     "),
-            QStringLiteral("▀▄▀ ▀▄▀ █     █ █      █      █▄▄▄▄▄ █▄▄▄▄▄ █     █ ▀▄▄▄▄▄▀ ▀▄▄▄▄▄▀ ▄▄▄▄▄▄▀ █▄▄▄▄▄"),
-        };
-        subtitle = QStringLiteral("MODERN MULTI-PROTOCOL COMMUNICATIONS TERMINAL");
-        protocols = QStringLiteral("AIM/OSCAR  |  IRC  |  TELNET/BBS  |  SIP/VOIP");
-        hint = QStringLiteral("Press any key to enter the communications hub");
-    }
-
+    const QStringList logo = {
+        QStringLiteral("▄     ▄  ▄▄▄▄▄  ▄▄▄▄▄▄ ▄▄▄▄▄▄ ▄      ▄▄▄▄▄▄ ▄     ▄  ▄▄▄▄▄▄ ▄     ▄  ▄▄▄▄▄▄ ▄▄▄▄▄▄"),
+        QStringLiteral("█     █ █     █ █      █      █      █      █     ▄ █     ▄ █     █ █       █     "),
+        QStringLiteral("█  ▄  ▄ █▄▄▄▄▄▀ █▄▄▄   █▄▄▄   █      █▄▄▄   █▀▀▀▀▀█ █     ▄ █     ▄ █▄▄▄▄▄▄ █▄▄▄  "),
+        QStringLiteral("▄  ▀  █ █     ▀ ▄      ▄      █      ▄      █     ▀ █     █ ▄     █       ▀ ▄     "),
+        QStringLiteral("▀▄▀ ▀▄▀ █     █ █      █      █▄▄▄▄▄ █▄▄▄▄▄ █     █ ▀▄▄▄▄▄▀ ▀▄▄▄▄▄▀ ▄▄▄▄▄▄▀ █▄▄▄▄▄"),
+    };
     const int logoHeight = static_cast<int>(logo.size());
     const int contentHeight = logoHeight + 6;
     const int startY = std::max(0, (LINES - contentHeight) / 2);
     for (int i = 0; i < logoHeight; ++i) {
         const QString &line = logo.at(i);
         const int x = std::max(0, (COLS - static_cast<int>(line.size())) / 2);
-        const int attr = A_BOLD | (has_colors() ? COLOR_PAIR(PairHeader) : 0);
-        safeAdd(startY + i, x, line, attr, COLS);
+        int attr = A_BOLD | (has_colors() ? COLOR_PAIR(PairHeader) : 0);
+        safeAdd(startY + i, x, line, attr);
     }
-    const QString edition = QStringLiteral("VERSION %1").arg(appVersionString().toUpper());
-    safeAdd(startY + logoHeight + 1, std::max(0, (COLS - static_cast<int>(edition.size())) / 2), edition, A_BOLD, COLS);
-    safeAdd(startY + logoHeight + 2, std::max(0, (COLS - static_cast<int>(subtitle.size())) / 2), subtitle, A_BOLD, COLS);
-    safeAdd(startY + logoHeight + 3, std::max(0, (COLS - static_cast<int>(protocols.size())) / 2), protocols, A_DIM, COLS);
-    safeAdd(startY + logoHeight + 5, std::max(0, (COLS - static_cast<int>(hint.size())) / 2), hint, A_DIM, COLS);
+    const QString edition = QStringLiteral("WAFFLEHOUSE-CLI — VERSION %1").arg(appVersionString().toUpper());
+    const QString subtitle = QStringLiteral("MODERN MULTI-PROTOCOL COMMUNICATIONS TERMINAL");
+    const QString protocols = QStringLiteral("AIM/OSCAR  |  IRC  |  TELNET/BBS  |  SIP/VOIP");
+    safeAdd(startY + logoHeight + 1, std::max(0, (COLS - static_cast<int>(edition.size())) / 2), edition, A_BOLD);
+    safeAdd(startY + logoHeight + 2, std::max(0, (COLS - static_cast<int>(subtitle.size())) / 2), subtitle, A_BOLD);
+    safeAdd(startY + logoHeight + 3, std::max(0, (COLS - static_cast<int>(protocols.size())) / 2), protocols, A_DIM);
+    const QString hint = QStringLiteral("Press any key to enter the communications hub");
+    safeAdd(startY + logoHeight + 5, std::max(0, (COLS - static_cast<int>(hint.size())) / 2), hint, A_DIM);
     refresh();
     wtimeout(stdscr, 75);
     for (int i = 0; i < 20; ++i) {
@@ -583,6 +549,7 @@ void TerminalUi::showSplash()
     clearok(stdscr, TRUE);
     curs_set(1);
 }
+
 
 void TerminalUi::shutdownCurses()
 {
@@ -1096,7 +1063,7 @@ void TerminalUi::drawHeader(int width)
         }
     }
 
-    const QString label = QStringLiteral("╭─ WAFFLEHOUSE-CLIENT %1%2 [CLI] ").arg(appVersionString().toUpper(), context);
+    const QString label = QStringLiteral("╭─ WAFFLEHOUSE-CLI %1%2 ").arg(appVersionString().toUpper(), context);
     QString line = label;
     const int fill = std::max(0, width - static_cast<int>(line.size()) - 1);
     line += QString(fill, QChar(0x2500)); // ─
@@ -1504,10 +1471,10 @@ void TerminalUi::draw()
     const int height = LINES;
     const int width = COLS;
 
-    if (height < 8 || width < 30) {
-        safeAdd(0, 0, QStringLiteral("WaffleHouse-Client %1: terminal too small").arg(appVersionString()), A_BOLD, width);
+    if (height < 8 || width < 42) {
+        safeAdd(0, 0, QStringLiteral("WaffleHouse-CLI %1: terminal too small").arg(appVersionString()), A_BOLD, width);
         safeAdd(1, 0,
-                QStringLiteral("Current size %1x%2; need at least 30x8.").arg(width).arg(height),
+                QStringLiteral("Current size %1x%2; need at least 42x8.").arg(width).arg(height),
                 0, width);
         refresh();
         return;
@@ -1781,7 +1748,7 @@ QStringList TerminalUi::slashCommands()
         QStringLiteral("/whois"), QStringLiteral("/whowas"),
         QStringLiteral("/ison"), QStringLiteral("/list"),
         QStringLiteral("/motd"), QStringLiteral("/quote"),
-        QStringLiteral("/options"), QStringLiteral("/menu"),
+        QStringLiteral("/options"),
         QStringLiteral("/notifications"), QStringLiteral("/notify"),
         QStringLiteral("/sound"), QStringLiteral("/soundtest"),
         QStringLiteral("/theme"), QStringLiteral("/themes"),
@@ -2768,7 +2735,7 @@ void TerminalUi::showOptions()
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
 
-        const int boxWidth = fitDialogWidth(COLS - 12, 54, 76);
+        const int boxWidth = std::clamp(COLS - 12, 54, 76);
         const int boxHeight = 15;
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
@@ -2778,7 +2745,7 @@ void TerminalUi::showOptions()
         meta(box, TRUE);
         wtimeout(box, 50);
         wborder(box, 0, 0, 0, 0, 0, 0, 0, 0);
-        const QByteArray title = QByteArray(" WaffleHouse-Client Options ");
+        const QByteArray title = QByteArray(" WaffleHouse-CLI Options ");
         mvwaddnstr(box, 0, 2, title.constData(), boxWidth - 4);
 
         struct Item { QString label; bool *value; };
@@ -4349,21 +4316,6 @@ void TerminalUi::handleCommand(const QString &line)
         status(QStringLiteral("CLI theme changed to %1.").arg(name));
         return;
     }
-    if (command == QStringLiteral("menu")) {
-        messageBox(QStringLiteral("Termux Command Map"), {
-            QStringLiteral("Connections: /connections /add /edit /connect /disconnect /use"),
-            QStringLiteral("Chat: /msg /query /join /j /part /buddies /rooms /members"),
-            QStringLiteral("IRC: /nick /notice /me /topic /mode /who /whois /list /motd /quote"),
-            QStringLiteral("Secure: /secure /secureoff /fingerprint /trust /untrust /securestatus"),
-            QStringLiteral("Files: /sendfile /transfers /accept /decline /resume /canceltransfer"),
-            QStringLiteral("SIP: /phone /dial /calls /answer /reject /hangup /hold /dtmf /siplog /ladder"),
-            QStringLiteral("Audio: /audio-devices /audio-use /audio-auto"),
-            QStringLiteral("Media: /media /mplay /mstream /mshoutcast /menqueue /mplaylist /mstop /meq"),
-            QStringLiteral("UI: /theme /themes /options /notifications /help"),
-            QStringLiteral("Tip: Termux extra-keys can provide TAB, CTRL, ALT, PGUP and PGDN.")
-        });
-        return;
-    }
     if (command == QStringLiteral("env") || command == QStringLiteral("environment")) {
         const RuntimeEnvironment info = RuntimeEnvironment::detect();
         messageBox(QStringLiteral("Runtime Environment"), {
@@ -4396,20 +4348,14 @@ void TerminalUi::handleCommand(const QString &line)
         const QByteArray encoded = QByteArrayLiteral("https://directory.shoutcast.com/Search?query=")
             + QUrl::toPercentEncoding(query);
         const QUrl url = QUrl::fromEncoded(encoded);
-#ifdef WAFFLEHOUSE_TERMUX
-        const QString opener = QStandardPaths::findExecutable(QStringLiteral("termux-open-url"));
-        if (!opener.isEmpty() && QProcess::startDetached(opener, {url.toString()})) {
-            status(QStringLiteral("Opened SHOUTcast directory search in Android: %1").arg(query));
-        } else {
-            status(QStringLiteral("SHOUTcast search URL: %1 (install termux-api for browser handoff)").arg(url.toString()));
-        }
-#else
-        if (QDesktopServices::openUrl(url)) {
+        const QString target = url.toString();
+        bool launched = QProcess::startDetached(QStringLiteral("termux-open-url"), QStringList{target});
+        if (!launched)
+            launched = QProcess::startDetached(QStringLiteral("xdg-open"), QStringList{target});
+        if (launched)
             status(QStringLiteral("Opened SHOUTcast directory search: %1").arg(query));
-        } else {
-            status(QStringLiteral("SHOUTcast search URL: %1").arg(url.toString()));
-        }
-#endif
+        else
+            status(QStringLiteral("SHOUTcast search URL: %1").arg(target));
         return;
     }
     if (command == QStringLiteral("menqueue")) {
@@ -5071,13 +5017,15 @@ void TerminalUi::handleCommand(const QString &line)
         }
         QString path = takeArgument(args);
         if (path.isEmpty()) {
-            QString dir;
 #ifdef WAFFLEHOUSE_TERMUX
-            const QString sharedDownloads = QDir::home().filePath(QStringLiteral("storage/downloads"));
-            if (QFileInfo(sharedDownloads).isDir()) dir = sharedDownloads;
-#endif
-            if (dir.isEmpty()) dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+            QString dir = QDir::homePath() + QStringLiteral("/storage/downloads");
+            if (!QFileInfo::exists(dir))
+                dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+            if (dir.isEmpty() || !QFileInfo::exists(dir)) dir = QDir::homePath();
+#else
+            QString dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
             if (dir.isEmpty()) dir = QDir::homePath();
+#endif
             path = QDir(dir).filePath(info.fileName);
         }
         QString error;
@@ -5566,7 +5514,7 @@ void TerminalUi::handleCommand(const QString &line)
 void TerminalUi::showHelp()
 {
     const QStringList lines = {
-        QStringLiteral("WAFFLEHOUSE-CLIENT COMMAND REFERENCE"),
+        QStringLiteral("WAFFLEHOUSE-CLI COMMAND REFERENCE"),
         QStringLiteral(""),
         QStringLiteral("OPTIONS / APPEARANCE"),
         QStringLiteral("  Tab                          complete/cycle matching slash commands"),
@@ -5743,7 +5691,7 @@ void TerminalUi::showHelp()
         QStringLiteral(""),
         QStringLiteral("Help popup: Up/Down, PgUp/PgDn, Home/End scroll; Esc/q closes."),
     };
-    scrollablePopup(QStringLiteral("WaffleHouse-Client Help"), lines);
+    scrollablePopup(QStringLiteral("WaffleHouse-CLI Help"), lines);
 }
 
 
@@ -5902,7 +5850,7 @@ QString TerminalUi::prompt(const QString &title,
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
 
-        const int boxWidth = fitDialogWidth(COLS - 8, 36, 72);
+        const int boxWidth = std::clamp(COLS - 8, 36, 72);
         const int boxHeight = 7;
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
@@ -6043,8 +5991,8 @@ void TerminalUi::messageBox(const QString &title, const QStringList &lines)
         for (const QString &line : lines) {
             contentWidth = std::max(contentWidth, static_cast<int>(line.size()) + 4);
         }
-        const int boxWidth = fitDialogWidth(contentWidth, 36, std::max(36, COLS - 6));
-        const int boxHeight = fitDialogHeight(static_cast<int>(lines.size()) + 5, 6, std::max(6, LINES - 4));
+        const int boxWidth = std::clamp(contentWidth, 36, std::max(36, COLS - 6));
+        const int boxHeight = std::clamp(static_cast<int>(lines.size()) + 5, 6, std::max(6, LINES - 4));
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
 
@@ -6090,7 +6038,7 @@ void TerminalUi::messageBox(const QString &title, const QStringList &lines)
 void TerminalUi::scrollablePopup(const QString &title, const QStringList &sourceLines)
 {
     QStringList lines;
-    const int desiredWidth = fitDialogWidth(COLS - 8, 44, 88);
+    const int desiredWidth = std::clamp(COLS - 8, 44, 88);
     const int textWidth = std::max(20, desiredWidth - 6);
     for (const QString &line : sourceLines) {
         lines.append(wrapText(line, textWidth));
@@ -6103,8 +6051,8 @@ void TerminalUi::scrollablePopup(const QString &title, const QStringList &source
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
 
-        const int boxWidth = fitDialogWidth(COLS - 6, 44, 92);
-        const int boxHeight = fitDialogHeight(LINES - 4, 10, 28);
+        const int boxWidth = std::clamp(COLS - 6, 44, 92);
+        const int boxHeight = std::clamp(LINES - 4, 10, 28);
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
         const int visible = std::max(1, boxHeight - 4);
@@ -6205,8 +6153,8 @@ QString TerminalUi::browseFile(const QString &initialPath)
         const int count = entries.size() + 1; // synthetic parent entry
         selected = std::clamp(selected, 0, std::max(0, count - 1));
 
-        const int boxWidth = fitDialogWidth(COLS - 8, 52, 96);
-        const int boxHeight = fitDialogHeight(LINES - 6, 12, 28);
+        const int boxWidth = std::clamp(COLS - 8, 52, 96);
+        const int boxHeight = std::clamp(LINES - 6, 12, 28);
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
         const int visible = std::max(4, boxHeight - 5);
@@ -6292,7 +6240,7 @@ bool TerminalUi::promptFileTransfer(ConnectionEntry *entry,
 
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-        const int boxWidth = fitDialogWidth(COLS - 8, 58, 92);
+        const int boxWidth = std::clamp(COLS - 8, 58, 92);
         const int boxHeight = 13;
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
@@ -6573,8 +6521,8 @@ bool TerminalUi::promptConnectionSettings(ConnectionSettings &settings,
             cursor = fields.at(active).value.size();
         }
 
-        const int boxWidth = fitDialogWidth(COLS - 6, 58, 86);
-        const int boxHeight = fitDialogHeight(LINES - 3, 14, 22);
+        const int boxWidth = std::clamp(COLS - 6, 58, 86);
+        const int boxHeight = std::clamp(LINES - 3, 14, 22);
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
         const int fieldRows = std::max(4, boxHeight - 5);

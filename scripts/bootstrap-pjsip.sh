@@ -106,7 +106,7 @@ else
   fi
 fi
 
-sh "$ROOT_DIR/scripts/build-pjsip.sh" "$DEST" "$PREFIX"
+"$ROOT_DIR/scripts/build-pjsip.sh" "$DEST" "$PREFIX"
 
 echo
 echo "PJSIP is ready for WaffleHouse-Client:"

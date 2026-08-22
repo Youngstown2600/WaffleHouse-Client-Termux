@@ -1,117 +1,55 @@
 # WaffleHouse-Client 3.2-Termux
 
-A dedicated Android/Termux CLI port of WaffleHouse-Client. This package is based on the supplied 3.1r8 source and keeps the CLI feature set while replacing desktop-only launch/build assumptions with Termux-native behavior.
+A dedicated Android/Termux CLI build of WaffleHouse-Client. This is **not** the Linux desktop binary with `--cli` forced on: the Termux target has its own entry point and compiles no Qt Widgets/GUI frontend code.
 
-## Included CLI features
+## Preserved features
 
-- AIM/OSCAR accounts, buddy list, IM, presence/AFK, private rooms and version query
-- IRC accounts, channels, private messages and IRC slash commands
-- Telnet/BBS terminal support and ANSI rendering
-- Secure direct messaging and Secure Rooms
-- Secure and unsecured file transfer, including direct-transfer support
-- Multi-account SIP/PJSIP softphone
-- SIP calls, answer/reject/hangup/hold/resume/mute/DTMF, activity, SIP log and ladder
-- SIP audio device selection and automatic audio selection
-- Themes, notifications, saved profiles and multi-connection status UI
-- Local media, HTTP/HLS streams, SHOUTcast/Icecast, queue/playlist controls, seek, volume, shuffle/repeat and EQ
+- AIM/OSCAR accounts, buddy presence, IM and private rooms
+- IRC accounts, channels and IRC `/commands`
+- Telnet/BBS sessions with ANSI terminal emulation
+- SIP/PJSIP 2.17 softphone, multiple accounts, calls, DTMF, hold/mute and SIP diagnostics
+- Secure rooms and encrypted direct messaging
+- Secure/unsecured file transfer and direct transfer
+- Saved profiles/accounts and CLI themes
+- Media playback, streams and playlists retained from the supplied 3.1r8 baseline
 
-The old edition branding has been removed. Media/radio functionality remains part of WaffleHouse-Client itself.
+## Termux-native differences
 
-## Build in Termux
+- CLI only; no desktop Qt Widgets or X11 window is compiled into WaffleHouse
+- Qt Core + Network remain because the existing protocol engines are built on them
+- `pkg` is used for Termux packages
+- no CPAN or Perl command is used by the WaffleHouse builder
+- Termux's own `xdg-open`/`termux-open-url` is reused
+- shared Downloads storage is used when `termux-setup-storage` has been granted
+- PJSIP is built specifically for Termux using the Termux PortAudio/OpenSL ES and libopus packages
 
-Use a current Termux installation from F-Droid or GitHub rather than the obsolete Play Store build.
+## Build
 
 ```sh
-pkg update
-pkg upgrade
-termux-setup-storage   # optional, enables ~/storage paths
+pkg install unzip
 unzip WaffleHouse-Client-3.2-Termux.zip
 cd WaffleHouse-Client-3.2-Termux
 chmod +x build.sh
 ./build.sh --clean
 ```
 
-The builder installs the required Termux packages, builds the managed PJSIP 2.17 dependency when needed, compiles the CLI-only executable, and installs it as:
-
-```text
-$PREFIX/bin/wafflehouse-client
-```
-
-Run it with:
+Then run:
 
 ```sh
 wafflehouse-client
 ```
 
-## SIP audio on Android
+For Android shared storage:
 
-The Termux build uses PJSIP/PJMEDIA with external PortAudio. Termux's PortAudio package supplies an Android OpenSL ES host backend. Install the matching **Termux:API Android app**, grant it microphone permission, and keep the `termux-api` package installed inside Termux.
-
-Inside WaffleHouse, verify devices with:
-
-```text
-/audio-devices
-/audio-auto
+```sh
+termux-setup-storage
 ```
 
-You can choose a specific input/output device with `/audio-use`.
-
-## Phone-sized terminal UI
-
-The CLI automatically uses a compact startup banner on narrow terminals and accepts widths down to 30 columns. `/menu` opens a compact command map so the client remains practical without function keys or an external keyboard. All existing slash commands remain available through the normal input line.
-
-## File transfers and storage
-
-After `termux-setup-storage`, incoming transfers without an explicit destination prefer:
+## Builder options
 
 ```text
-~/storage/downloads
+./build.sh --clean       clean application build
+./build.sh --pjsip       force rebuild of managed PJSIP 2.17
+./build.sh --test        run source/parity tests only
+./build.sh --uninstall   uninstall WaffleHouse-Client files
 ```
-
-Otherwise WaffleHouse falls back to Qt's download location or the Termux home directory.
-
-## Media
-
-`mpv` is used for local media and stream playback. Media support includes local paths, HTTP/HLS streams, SHOUTcast/Icecast URLs, queue/playlist controls and EQ. The supplied 3.1r8 baseline had already removed YouTube-specific playback; 3.2-Termux preserves that baseline behavior.
-
-## Useful commands
-
-```text
-/menu
-/help
-/connections
-/add
-/buddies
-/join
-/msg
-/secure
-/sendfile
-/transfers
-/phone
-/dial
-/calls
-/siplog
-/ladder
-/audio-devices
-/media
-/mplaylist
-/themes
-/options
-```
-
-## Build options
-
-```text
-./build.sh --clean
-./build.sh --upgrade
-./build.sh --uninstall
-./build.sh --pjsip
-./build.sh --no-auto-deps
-./build.sh --no-install
-./build.sh --dry-run
-./build.sh --jobs N
-```
-
-## Platform scope
-
-This package is the **Termux CLI build**. It intentionally does not build or launch the Qt Widgets desktop GUI. The shared protocol, security, file-transfer, SIP and media code remains in the source tree.

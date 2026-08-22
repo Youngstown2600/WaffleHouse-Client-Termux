@@ -1,2 +1,0 @@
-WaffleHouse-Client 3.2-Termux validation
-See VALIDATION-3.2-Termux.txt.

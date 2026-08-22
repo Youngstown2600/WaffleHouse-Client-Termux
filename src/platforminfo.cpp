@@ -1,5 +1,9 @@
 #include "platforminfo.h"
 
+#ifdef WAFFLEHOUSE_TERMUX
+#define WAFFLEHOUSE_TERMUX_PLATFORM 1
+#endif
+
 #include <QProcessEnvironment>
 #include <QSysInfo>
 #include <QStringList>
@@ -21,7 +25,7 @@ QString firstEnvironmentValue(const QProcessEnvironment &env,
 RuntimeEnvironment RuntimeEnvironment::detect()
 {
     RuntimeEnvironment info;
-#if defined(WAFFLEHOUSE_TERMUX) || defined(Q_OS_ANDROID)
+#if defined(WAFFLEHOUSE_TERMUX)
     info.osName = QStringLiteral("Android / Termux");
 #elif defined(Q_OS_FREEBSD)
     info.osName = QStringLiteral("FreeBSD");
@@ -36,8 +40,6 @@ RuntimeEnvironment RuntimeEnvironment::detect()
     const QString display = env.value(QStringLiteral("DISPLAY")).trimmed();
     const QString wayland = env.value(QStringLiteral("WAYLAND_DISPLAY")).trimmed();
     const QString xdgSession = env.value(QStringLiteral("XDG_SESSION_TYPE")).trimmed().toCaseFolded();
-    const bool termux = env.contains(QStringLiteral("TERMUX_VERSION"))
-        || env.value(QStringLiteral("PREFIX")).contains(QStringLiteral("com.termux"));
 
     info.graphicalSession = !display.isEmpty() || !wayland.isEmpty()
         || xdgSession == QStringLiteral("x11") || xdgSession == QStringLiteral("wayland");
@@ -84,12 +86,10 @@ RuntimeEnvironment RuntimeEnvironment::detect()
         info.terminal = env.value(QStringLiteral("TERM")).trimmed();
     }
 
-    if (termux) {
-        info.sessionType = QStringLiteral("termux");
-        info.mode = info.ttyAttached ? QStringLiteral("Android Termux terminal")
-                                    : QStringLiteral("Android Termux non-interactive");
-        if (info.terminal.isEmpty()) info.terminal = QStringLiteral("Termux");
-    } else if (info.graphicalSession && info.ttyAttached) {
+#if defined(WAFFLEHOUSE_TERMUX)
+    info.mode = info.ttyAttached ? QStringLiteral("Termux terminal") : QStringLiteral("Termux non-interactive");
+#else
+    if (info.graphicalSession && info.ttyAttached) {
         info.mode = QStringLiteral("graphical terminal emulator");
     } else if (info.graphicalSession) {
         info.mode = QStringLiteral("graphical desktop session");
@@ -98,6 +98,7 @@ RuntimeEnvironment RuntimeEnvironment::detect()
     } else {
         info.mode = QStringLiteral("headless/non-interactive");
     }
+#endif
 
     return info;
 }
