@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-APP="WaffleHouse-Client-Termux Build 0.6"
+APP="WaffleHouse-Client-Termux Build 0.7"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PREFIX_EXPECTED="/data/data/com.termux/files/usr"
 BUILD="$ROOT/build-termux"
@@ -82,12 +82,12 @@ install_xdg_provider(){
   install -d -m 0755 "$stage/DEBIAN"
   cat > "$stage/DEBIAN/control" <<CTRL
 Package: wafflehouse-termux-xdg-provider
-Version: 0.6.0
+Version: 0.7.0
 Architecture: all
 Maintainer: WaffleHouse-Client
 Provides: xdg-utils
 Conflicts: xdg-utils
-Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.6
+Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.7
  Contains no files. Termux's existing xdg-open command remains owned by termux-tools.
 CTRL
   chmod 0644 "$stage/DEBIAN/control"
@@ -123,6 +123,11 @@ pjsip_limits_ok(){
   # configuration before trusting a cached managed PJSIP install.
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO[[:space:]]+1([[:space:]]|$)' "$cfg" || return 1
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI[[:space:]]+0([[:space:]]|$)' "$cfg" || return 1
+  # Native Termux has no Java VM. Build 0.7 replaces PJSIP's Android/JNI
+  # UUID backend with upstream guid_simple.o so SIP branch/Call-ID/tag values
+  # are valid in a standalone terminal process.
+  [[ -f "$PJINSTALL/.wafflehouse-termux-guid-backend" ]] || return 1
+  grep -qx 'guid_simple' "$PJINSTALL/.wafflehouse-termux-guid-backend" || return 1
 }
 
 build_pjsip(){
@@ -143,6 +148,24 @@ build_pjsip(){
   # rebuilt dependency.
   rm -rf "$PJINSTALL"
   git clone --depth 1 --branch 2.17 https://github.com/pjsip/pjproject.git "$PJROOT"
+
+  # PJSIP deliberately selects guid_android.o whenever the compiler target is
+  # Android. That implementation calls java.util.UUID through JNI. A native
+  # Termux executable has no Java VM, so pj_generate_unique_string() fails and
+  # REGISTER messages end up with empty Call-ID/From tags and NUL-filled Via
+  # branches. Keep the Android platform target, but use PJSIP's own native
+  # non-JNI GUID backend for this target.
+  python3 - "$PJROOT/aconfigure" <<'PYGUID'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = 'ac_os_objs="$ac_os_objs guid_android.o"'
+new = 'ac_os_objs="$ac_os_objs guid_simple.o"'
+if old not in s:
+    raise SystemExit("Unable to locate PJSIP Android GUID backend selection")
+p.write_text(s.replace(old, new, 1))
+PYGUID
   mkdir -p "$PJROOT/pjlib/include/pj"
   cat > "$PJROOT/pjlib/include/pj/config_site.h" <<'CFG'
 #pragma once
@@ -182,9 +205,19 @@ CFG
     --with-opus="$PREFIX" \
     --with-ssl="$PREFIX" \
     --disable-video
+
+  # Fail before compilation if upstream configure logic changes and the JNI
+  # GUID object slips back in. os-auto.mak is the authoritative PJLIB object
+  # list produced by aconfigure.
+  if ! grep -q 'guid_simple.o' "$PJROOT/pjlib/build/os-auto.mak" || \
+     grep -q 'guid_android.o' "$PJROOT/pjlib/build/os-auto.mak"; then
+    echo "PJSIP Termux GUID configuration failed: expected guid_simple.o and no guid_android.o." >&2
+    exit 1
+  fi
   make dep
   make -j"$JOBS"
   make install
+  printf '%s\n' 'guid_simple' > "$PJINSTALL/.wafflehouse-termux-guid-backend"
 
   # PJSIP installs public headers used by WaffleHouse. Refuse to continue if
   # the installed headers do not expose the exact limits used to build the
@@ -194,7 +227,7 @@ CFG
     echo "Expected PJSUA_MAX_ACC=32, PJSUA_MAX_CALLS=64, PJ_IOQUEUE_MAX_HANDLES=256." >&2
     exit 1
   fi
-  say "Verified PJSIP: accounts=32 calls=64 ioqueue=256 audio=PortAudio JNI=off"
+  say "Verified PJSIP: accounts=32 calls=64 ioqueue=256 audio=PortAudio JNI=off GUID=guid_simple"
 }
 
 run_tests(){

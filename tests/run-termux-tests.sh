@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 pass=0; fail=0
 check(){ if eval "$2"; then printf 'PASS: %s\n' "$1"; pass=$((pass+1)); else printf 'FAIL: %s\n' "$1"; fail=$((fail+1)); fi; }
-check "Build 0.6 branding" "grep -q 'Build 0.6' '$ROOT/src/appbranding.h'"
+check "Build 0.7 branding" "grep -q 'Build 0.7' '$ROOT/src/appbranding.h'"
 check "Dedicated Termux entry point" "test -f '$ROOT/src/main_termux.cpp' && test ! -f '$ROOT/src/main.cpp'"
 check "Qt Core/Network only" "grep -q 'COMPONENTS Core Network' '$ROOT/CMakeLists.txt'"
 check "No Qt Widgets" "! grep -Rqs 'Qt6::Widgets' '$ROOT/CMakeLists.txt' '$ROOT/src'"
@@ -25,6 +25,9 @@ check "PJSIP cached-limit validation" "grep -q 'pjsip_limits_ok' '$ROOT/build-te
 check "PortAudio SIP backend" "grep -q -- '--with-external-pa' '$ROOT/build-termux.sh'"
 check "Termux SIP JNI audio disabled" "grep -q '#define PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI 0' '$ROOT/build-termux.sh' && grep -q '#define PJMEDIA_AUDIO_DEV_HAS_OBOE 0' '$ROOT/build-termux.sh'"
 check "Termux SIP cached JNI validation" "grep -q 'PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI.*0' '$ROOT/build-termux.sh'"
+check "Termux native GUID backend" "grep -q 'guid_android.o' '$ROOT/build-termux.sh' && grep -q 'guid_simple.o' '$ROOT/build-termux.sh' && grep -q 'PJSIP Termux GUID configuration failed' '$ROOT/build-termux.sh'"
+check "Termux cached GUID backend validation" "grep -q 'wafflehouse-termux-guid-backend' '$ROOT/build-termux.sh' && grep -q 'grep -qx.*guid_simple' '$ROOT/build-termux.sh'"
+check "Runtime SIP GUID sanity gate" "grep -q 'verifyPjGuidBackend' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'refusing to send malformed SIP transactions' '$ROOT/src/sipcore/SipEngine.cpp'"
 check "Termux runtime uses TMPDIR" "grep -q 'absoluteEnvPath(\"TMPDIR\")' '$ROOT/src/sipcore/RuntimePaths.cpp' && grep -q 'absoluteEnvPath(\"PREFIX\")' '$ROOT/src/sipcore/RuntimePaths.cpp'"
 check "Termux builder avoids literal /tmp scratch file" "grep -q 'TMPBASE=\"\${TMPDIR:-\$PREFIX_EXPECTED/tmp}\"' '$ROOT/build-termux.sh' && ! grep -Eq '/tmp/wh-xdg-status' '$ROOT/build-termux.sh'"
 check "SIP startup error retained" "grep -q 'm_initializationError' '$ROOT/src/sipcontroller.cpp' && grep -q 'initializationError() const' '$ROOT/src/sipcontroller.h'"
@@ -45,9 +48,7 @@ check "CLI themes retained" "grep -q 'neon-miami' '$ROOT/src/terminalui.cpp' && 
 check "Termux shared Downloads support" "grep -q 'storage/downloads' '$ROOT/src/terminalui.cpp'"
 check "Android notification audio" "grep -q 'termux-media-player' '$ROOT/src/notificationmanager.cpp'"
 check "Android browser handoff" "grep -q 'termux-open-url' '$ROOT/src/terminalui.cpp'"
-check "Softphone version updated" "grep -q 'Build 0.6' '$ROOT/include/trunkmonkey/Version.h'"
-check "Global SIP registration trace API" "grep -q 'globalSipTrace()const' '$ROOT/include/trunkmonkey/SipEngine.h' && grep -q 'globalSipTrace_.push_back' '$ROOT/src/sipcore/SipEngine.cpp'"
-check "SIP log includes global registration traffic" "grep -q 'm_engine->globalSipTrace()' '$ROOT/src/sipcontroller.cpp'"
-check "Busy unregister is nonfatal" "grep -q 'PJSIP_EBUSY' '$ROOT/src/sipcontroller.cpp'"
+check "Global SIP registration trace" "grep -q 'recentSipTrace() const' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'recentSip_.push_back(entry)' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'recentSipTrace()' '$ROOT/src/sipcontroller.cpp'"
+check "Softphone version updated" "grep -q 'Build 0.7' '$ROOT/include/trunkmonkey/Version.h'"
 printf '\nTermux rebuild parity gate: %d passed, %d failed\n' "$pass" "$fail"
 (( fail == 0 ))

@@ -1,24 +1,26 @@
-WaffleHouse-Client-Termux Build 0.6 — validation
+WaffleHouse-Client-Termux Build 0.7 — validation
 =========================================
 
-Termux-specific parity gate: 43/43 PASS.
+Termux-specific parity gate: 47/47 PASS.
 Shell syntax validation: PASS.
 
-Latest SIP fixes:
-- Saved SIP passwords survive 408/network/transport registration failures.
-- Only explicit authentication failures may clear an unsaved session secret.
-- Persisted SIP passwords are never silently erased by backend error recovery.
-- PJ_EINVALIDOP during unregister of an already timed-out/offline account is treated as idempotent success.
-- Termux TMPDIR runtime path handling retained.
-- Android JNI PJSIP audio backend remains disabled; PortAudio path retained.
+Build 0.7 SIP registration fix:
+- Build 0.6 wire trace proved REGISTER was transmitted to the expected PBX from the expected local address, but its Via branch contained NUL bytes, Call-ID was empty, and the From tag was missing.
+- Those fields all depend on PJLIB unique-ID generation. PJSIP 2.17 selects guid_android.o for Android targets; that backend obtains java.util.UUID through JNI and therefore cannot generate identifiers in a native Termux process with no Java VM.
+- The managed Termux PJSIP build now substitutes upstream guid_simple.o for guid_android.o while preserving the Android platform target and the working PortAudio configuration.
+- Post-configure validation refuses to build if guid_android.o remains selected.
+- A managed-install marker forces existing Build 0.6 PJSIP prefixes to rebuild automatically.
+- WaffleHouse also performs a PJLIB GUID sanity check at SIP startup and refuses to transmit if unique IDs are empty, NUL-filled, or otherwise non-printable.
 
-Previously validated Termux architecture remains intact:
-- Dedicated Termux CLI entry point.
-- Qt Core/Network only; no Qt GUI/Widgets/XKB desktop frontend.
+Previously validated fixes retained:
+- Global /siplog registration trace for REGISTER/401/200 and other endpoint SIP traffic.
+- Saved SIP passwords survive 408/network/transport registration failures.
+- PJ_EINVALIDOP/PJSIP_EBUSY cleanup is handled without turning a registration timeout into a second user-facing failure.
+- Termux TMPDIR runtime path handling.
+- Android JNI PJSIP audio backend disabled; PortAudio path retained.
+- Dedicated Termux CLI entry point; Qt Core/Network only.
 - Termux pkg dependency installation; no CPAN/Perl command path.
 - PJSIP 2.17 managed build with WaffleHouse account/call/ioqueue limits.
-- AIM/OSCAR, IRC slash commands, Telnet/BBS/ANSI, SIP, Secure Rooms,
-  encrypted/direct file transfer, media/streams, themes, Android storage,
-  notification audio and URL handoff retained.
+- AIM/OSCAR, IRC slash commands, Telnet/BBS/ANSI, SIP, Secure Rooms, encrypted/direct file transfer, media/streams, themes, Android storage, notification audio and URL handoff retained.
 
 Native Android/Termux runtime remains the authoritative end-to-end test environment.

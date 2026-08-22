@@ -90,7 +90,7 @@ public:
     void exportCallReport(int id,const std::string& path)const;
 
     std::vector<SipTraceEntry> sipTrace(int id)const;
-    std::vector<SipTraceEntry> globalSipTrace()const;
+    std::vector<SipTraceEntry> recentSipTrace()const;
     void startSipTraceFile(int id,const std::string& path);
     void stopSipTraceFile(int id);
     bool sipTraceRecording(int id)const;
@@ -151,7 +151,7 @@ private:
     std::map<int,ArchivedCall> archivedCalls_;
     std::map<std::string,int> callIdIndex_;
     std::map<std::string,std::vector<SipTraceEntry>> pendingSip_;
-    std::vector<SipTraceEntry> globalSipTrace_;
+    std::vector<SipTraceEntry> recentSip_;
     int foregroundId_{-1};
     std::string lastSystemAudioRoute_;
     std::uint64_t lastSystemAudioPollMs_{0};

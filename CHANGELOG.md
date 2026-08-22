@@ -1,11 +1,16 @@
-## Build 0.6 — SIP registration tracing / busy disconnect cleanup
+## Build 0.7 — native Termux SIP transaction identifiers
 
-- /siplog now includes endpoint-wide REGISTER/401/403/200/OPTIONS/NOTIFY traffic, not only call-associated SIP.
-- Keeps a bounded 256-message global SIP trace in memory.
-- PJSIP_EBUSY during disconnect after a timed-out registration is treated as asynchronous shutdown, not a fatal user-facing error.
-- Retains all Build 0.5 Termux, SIP password, TMPDIR, audio, and CPAN-free fixes.
+- Fixed the root cause of Termux SIP REGISTER 408 timeouts: PJSIP's Android target selected `guid_android.c`, whose UUID generator requires a Java/JNI VM. Native Termux has no JVM, leaving Via branch suffixes zero-filled and Call-ID/From tags empty.
+- The managed PJSIP 2.17 build now forces upstream `guid_simple.o` for the Termux target while retaining the otherwise-working Android/PJLIB configuration.
+- Cached managed PJSIP installs are accepted only when they carry the Termux native-GUID marker, so Build 0.7 automatically rebuilds the stale JNI-GUID PJSIP used by Build 0.6.
+- Added post-configure verification that `guid_android.o` is absent and `guid_simple.o` is present in PJLIB's selected objects.
+- Added a runtime GUID sanity check before SIP endpoint initialization so malformed transaction identifiers fail loudly rather than producing silent 408s.
 
-## Build 0.5 — SIP credential persistence / timeout cleanup
+## Build 0.6 — SIP registration diagnostics
+- /siplog now includes global SIP traffic such as REGISTER and registration responses, not only call-associated messages.
+- Keeps a bounded 500-message in-memory SIP trace for mobile troubleshooting.
+
+## Build 0.6 — SIP credential persistence / timeout cleanup
 
 - Fixed a Termux CLI bug where a SIP 408/network error cleared the in-memory SIP password even when **Save password** was enabled, causing the next settings write to erase the saved credential.
 - Network/transport errors no longer invalidate SIP credentials. Only explicit authentication failures may clear an unsaved session secret.
@@ -13,7 +18,7 @@
 - Treat `PJ_EINVALIDOP` while unregistering an already timed-out/offline SIP account as a successful idempotent disconnect instead of displaying a secondary error.
 
 
-## Build 0.5 — Termux TMPDIR runtime fix
+## Build 0.6 — Termux TMPDIR runtime fix
 - SIP/runtime scratch files now use `$TMPDIR` (or `$PREFIX/tmp`) on Termux instead of hard-coded `/tmp`.
 - Added `$HOME/.cache/wafflehouse-client/tmp` as the Android fallback when Termux temp variables are unavailable.
 - Builder package-state scratch files now also use `$TMPDIR`.

@@ -6,6 +6,7 @@
 #include "trunkmonkey/SipWireMonitor.h"
 #include "trunkmonkey/Version.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <cstdio>
@@ -19,6 +20,7 @@
 #include <iomanip>
 #include <thread>
 #include <pj/log.h>
+#include <pj/guid.h>
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
@@ -60,6 +62,22 @@ private:
     int previousLevel_{0};
     bool restoreOnExit_{true};
 };
+
+void verifyPjGuidBackend()
+{
+    std::array<char, PJ_GUID_MAX_LENGTH> storage{};
+    pj_str_t value{};
+    value.ptr=storage.data();
+    value.slen=0;
+    if(!pj_generate_unique_string(&value) || value.slen<=0 ||
+       static_cast<std::size_t>(value.slen)>storage.size())
+        throw std::runtime_error("PJLIB unique-ID generation failed; native Termux PJSIP must use the non-JNI GUID backend");
+    for(pj_ssize_t i=0;i<value.slen;++i){
+        const unsigned char c=static_cast<unsigned char>(value.ptr[i]);
+        if(c==0 || c<0x21 || c>0x7e)
+            throw std::runtime_error("PJLIB unique-ID generation returned invalid bytes; refusing to send malformed SIP transactions");
+    }
+}
 
 std::string trim(std::string value)
 {
@@ -422,6 +440,10 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
         endpoint_=std::make_unique<pj::Endpoint>();
         PjBootstrapLogSilencer bootstrapLogSilencer;
         endpoint_->libCreate();
+        // PJSIP's normal Android build generates transaction IDs via Java/JNI.
+        // Native Termux has no JVM, so verify the managed PJSIP dependency uses
+        // our non-JNI GUID backend before any REGISTER/INVITE can be created.
+        verifyPjGuidBackend();
 
         pj::EpConfig ec;
         ec.uaConfig.maxCalls=maxCalls;
@@ -1536,6 +1558,12 @@ void SipEngine::exportCallReport(int id,const std::string& path)const
 #endif
 }
 
+std::vector<SipTraceEntry> SipEngine::recentSipTrace() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return recentSip_;
+}
+
 std::vector<SipTraceEntry> SipEngine::sipTrace(int id)const
 {
     if(auto call=findCall(id)){
@@ -1547,12 +1575,6 @@ std::vector<SipTraceEntry> SipEngine::sipTrace(int id)const
     if(!archived) throw std::runtime_error("Call not found");
     if(archived->snapshot.purpose!=CallPurpose::Phone) throw std::runtime_error("SIP trace is limited to normal Phone calls");
     return archived->sipTrace;
-}
-
-std::vector<SipTraceEntry> SipEngine::globalSipTrace()const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return globalSipTrace_;
 }
 void SipEngine::startSipTraceFile(int id,const std::string& path){requirePhoneCall(id)->startSipTraceFile(path);logger_.info("SIP trace file started: "+path);}
 void SipEngine::stopSipTraceFile(int id){auto c=requirePhoneCall(id);auto p=c->sipTracePath();c->stopSipTraceFile();logger_.info("SIP trace file stopped"+(p.empty()?std::string{}:": "+p));}
@@ -1577,25 +1599,22 @@ void SipEngine::onSipMessage(SipTraceEntry entry)
     std::shared_ptr<CallSession> call;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        recentSip_.push_back(entry);
+        if(recentSip_.size()>500) recentSip_.erase(recentSip_.begin(), recentSip_.begin()+100);
         const auto mapped=callIdIndex_.find(entry.callIdString);
         if(mapped!=callIdIndex_.end()){
             const auto it=calls_.find(mapped->second);
             if(it!=calls_.end()) call=it->second;
         }
         if(!call){
-            // Keep a bounded endpoint-wide trace for registration and other
-            // non-call SIP transactions.  This is essential on Termux where
-            // REGISTER/401/200 diagnostics need to be visible in /siplog.
-            globalSipTrace_.push_back(entry);
-            if(globalSipTrace_.size()>256)
-                globalSipTrace_.erase(globalSipTrace_.begin(), globalSipTrace_.begin() + (globalSipTrace_.size()-256));
-
             // The monitor can observe the initial INVITE before makeCall()/the
             // incoming-call callback has registered its CallSession. Buffer
-            // INVITE transactions for that short race window as before.
+            // only INVITE transactions for that short race window; buffering
+            // arbitrary unmatched OPTIONS/NOTIFY/etc. would retain unrelated
+            // raw SIP traffic and grow memory unnecessarily.
             if(entry.method=="INVITE" && !entry.callIdString.empty()){
                 auto& queue=pendingSip_[entry.callIdString];
-                if(queue.size()<32) queue.push_back(entry);
+                if(queue.size()<32) queue.push_back(std::move(entry));
                 if(pendingSip_.size()>64) pendingSip_.erase(pendingSip_.begin());
             }
             return;
