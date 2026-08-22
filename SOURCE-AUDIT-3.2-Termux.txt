@@ -8,7 +8,7 @@ Ported from the user-supplied WaffleHouse-Client 3.1r8 source archive.
 Termux changes
 --------------
 - New QCoreApplication entry point: src/main_termux.cpp.
-- Dedicated CLI-only CMake target; desktop Qt Widgets frontend is not linked.
+- Dedicated CLI-only CMake target; Qt Gui and desktop Qt Widgets are not linked.
 - Product/version identity changed to WaffleHouse-Client 3.2-Termux.
 - Former media-edition sub-brand removed from retained source/documentation branding surfaces.
 - Responsive ncurses startup presentation for narrow phone terminals.
@@ -18,6 +18,7 @@ Termux changes
 - Added Termux shared Downloads preference for accepted file transfers.
 - Added termux-media-player notification playback and termux-open-url browser handoff.
 - Added Termux builder, dependency installation, install/uninstall/update lifecycle.
+- Removed Perl/CPAN from the builder path by installing a minimal local xdg-utils compatibility provider before qt6-qtbase.
 - Added managed PJSIP 2.17 Termux configuration with external PortAudio/OpenSL ES.
 - Preserved PJSIP multi-account/call sizing and existing SIP lifetime compatibility guard.
 

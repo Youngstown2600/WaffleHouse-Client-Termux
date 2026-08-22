@@ -14,7 +14,7 @@
 - Added Termux shared-Downloads default for accepted file transfers.
 - Added Termux notification playback path.
 - Added managed PJSIP 2.17 Termux build using external PortAudio/OpenSL ES.
-- Added MetaCPAN fallback/recovery for the Qt/xdg-utils CPAN post-install dependency, avoiding build failure when www.cpan.org times out.
+- Removed the CPAN dependency from the Termux build path. The builder now satisfies Qt's `xdg-utils` dependency with a minimal local Termux compatibility provider and no Perl install.
 
 # WaffleHouse-Client 3.1r8 WaffleHouse media — YouTube feature removal — 2026-08-22
 

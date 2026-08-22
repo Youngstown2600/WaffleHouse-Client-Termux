@@ -23,7 +23,7 @@ The build script enables the Termux X11 package repository because Qt 6 librarie
 
 The builder installs Clang, CMake, Qt 6 Core/Gui/Network libraries, libsodium, ncurses, OpenSSL, libuuid, PortAudio, Opus, mpv, FFmpeg and Termux:API support. It also builds a managed PJSIP 2.17 copy configured for Termux.
 
-Qt 6 currently pulls Termux `xdg-utils`, whose post-install hook retrieves Perl `File::MimeInfo` from CPAN. The builder uses a temporary CPAN configuration that prefers `https://cpan.metacpan.org/`, so a timeout at `www.cpan.org` does not block WaffleHouse installation or overwrite the user's personal CPAN settings.
+Qt 6 currently declares a dependency on Termux `xdg-utils`. The stock `xdg-utils` install path can run a Perl/CPAN post-install hook, which is unnecessary for this CLI. The builder therefore installs a tiny local `wafflehouse-xdg-utils-compat` provider before Qt. It supplies only an `xdg-open` compatibility wrapper that delegates to Termux/Android helpers. **WaffleHouse-Client does not install Perl and does not invoke CPAN.**
 
 ## 4. Android permissions
 

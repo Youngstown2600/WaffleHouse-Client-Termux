@@ -9,8 +9,9 @@ need_file(){ [ -s "$ROOT/$1" ] || fail "missing/empty $1"; }
 # Product identity and CLI-only Termux target.
 need CMakeLists.txt 'project(WaffleHouseClientTermux VERSION 3.2.0 LANGUAGES CXX)'
 need CMakeLists.txt 'set(APP_VERSION_STRING "3.2-Termux"'
-need CMakeLists.txt 'find_package(Qt6 REQUIRED COMPONENTS Core Gui Network)'
+need CMakeLists.txt 'find_package(Qt6 REQUIRED COMPONENTS Core Network)'
 forbid CMakeLists.txt 'Qt6::Widgets'
+forbid CMakeLists.txt 'Qt6::Gui'
 need CMakeLists.txt 'WAFFLEHOUSE_TERMUX=1'
 need CMakeLists.txt 'src/main_termux.cpp'
 need src/appbranding.h '#define APP_VERSION_STRING "3.2-Termux"'
@@ -22,6 +23,11 @@ need src/main_termux.cpp 'migrateLegacyWaffleHouseProfiles();'
 
 # Termux builder and PJSIP/audio path.
 need build-termux.sh 'qt6-qtbase libsodium ncurses openssl libuuid portaudio libopus'
+need build-termux.sh 'wafflehouse-xdg-utils-compat'
+need build-termux.sh 'Provides: xdg-utils'
+forbid build-termux.sh 'pkg install -y perl'
+forbid build-termux.sh 'prepare_termux_cpan_home'
+forbid build-termux.sh 'cpan.metacpan.org'
 need build-termux.sh 'mpv ffmpeg termux-api'
 need build-termux.sh 'PJSIP_PREFIX='
 need build-termux.sh 'sh scripts/bootstrap-pjsip.sh'

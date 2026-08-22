@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QByteArray>
+#ifndef WAFFLEHOUSE_TERMUX
 #include <QColor>
+#endif
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -31,7 +33,9 @@ public:
     QString plainLine(int row) const;
     QStringList plainLines() const;
 
+#ifndef WAFFLEHOUSE_TERMUX
     static QColor ansiColor(int index, bool bright = false);
+#endif
 
 private:
     void put(QChar ch);

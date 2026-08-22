@@ -257,6 +257,7 @@ void AnsiTerminalModel::feed(const QString &text)
     }
 }
 
+#ifndef WAFFLEHOUSE_TERMUX
 QColor AnsiTerminalModel::ansiColor(int index, bool bright)
 {
     static const int normal[8][3] = {
@@ -269,3 +270,4 @@ QColor AnsiTerminalModel::ansiColor(int index, bool bright)
     const int (*table)[3] = bright ? high : normal;
     return QColor(table[index][0], table[index][1], table[index][2]);
 }
+#endif

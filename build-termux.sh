@@ -89,48 +89,97 @@ if [ "$UNINSTALL" -eq 1 ]; then
   exit 0
 fi
 
-prepare_termux_cpan_home() {
-  # qt6-qtbase depends on Termux xdg-utils.  xdg-utils currently installs the
-  # Perl File::MimeInfo module from CPAN in its post-install script.  Do not
-  # depend on www.cpan.org being reachable: give that package transaction a
-  # throw-away CPAN config which prefers MetaCPAN instead.  The temporary HOME
-  # also means we do not rewrite the user's personal CPAN configuration.
-  CPAN_STAGE_HOME="$ROOT_DIR/.termux-cpan-stage"
-  rm -rf "$CPAN_STAGE_HOME"
-  mkdir -p "$CPAN_STAGE_HOME/.cpan/CPAN"
+install_xdg_utils_compat() {
+  # qt6-qtbase depends on xdg-utils, but the Termux xdg-utils package currently
+  # runs a CPAN install hook.  The WaffleHouse Termux CLI does not need the
+  # desktop xdg-utils implementation, so satisfy that dependency with a tiny
+  # local provider instead.  Its xdg-open wrapper delegates to native Termux
+  # helpers when another program happens to call it.
+  STUB_NAME=wafflehouse-xdg-utils-compat
+  STUB_VERSION=1.0.0
+  STUB_ROOT="$ROOT_DIR/.termux-xdg-utils-compat"
+  STUB_DEB="$ROOT_DIR/.termux-xdg-utils-compat.deb"
+  REL_PREFIX=${TERMUX_PREFIX#/}
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  [dry-run] CPAN mirror: https://cpan.metacpan.org/ (temporary HOME)"
+    echo "  [dry-run] install local $STUB_NAME provider for xdg-utils (no Perl/CPAN)"
     return 0
   fi
 
-  need_cmd perl || {
-    echo "Perl is required to prepare the Termux Qt dependency workaround." >&2
-    return 1
-  }
+  need_cmd dpkg || { echo "Termux dpkg command not found." >&2; exit 1; }
+  need_cmd dpkg-deb || { echo "Termux dpkg-deb command not found." >&2; exit 1; }
 
-  HOME="$CPAN_STAGE_HOME" perl -MCPAN::Config -MData::Dumper -e '''
-    $CPAN::Config->{urllist} = [q[https://cpan.metacpan.org/], q[https://www.cpan.org/]];
-    $CPAN::Config->{pushy_https} = 0;
-    $CPAN::Config->{connect_to_internet_ok} = 1;
-    $Data::Dumper::Terse = 1;
-    $Data::Dumper::Purity = 1;
-    my $path = "$ENV{HOME}/.cpan/CPAN/MyConfig.pm";
-    open my $fh, ">", $path or die "cannot write $path: $!";
-    print {$fh} "\$CPAN::Config = ", Data::Dumper::Dumper($CPAN::Config), ";\n1;\n";
-    close $fh or die "cannot close $path: $!";
-  '''
+  if dpkg-query -W -f='${Status}' xdg-utils 2>/dev/null | grep -q '^install ok installed$'; then
+    echo "==> Existing xdg-utils is already configured; leaving it untouched"
+    return 0
+  fi
+
+  if dpkg-query -W -f='${Status}' "$STUB_NAME" 2>/dev/null | grep -q '^install ok installed$'; then
+    echo "==> WaffleHouse xdg-utils compatibility provider is already installed"
+    return 0
+  fi
+
+  # A previous qt6-qtbase attempt may have left the official xdg-utils package
+  # unpacked but unconfigured. Remove that broken package *before* running
+  # dpkg --configure -a so its CPAN postinst is never retried.
+  if dpkg-query -W -f='${Status}' xdg-utils >/dev/null 2>&1; then
+    echo "==> Removing incomplete Termux xdg-utils package"
+    dpkg --remove --force-remove-reinstreq xdg-utils >/dev/null 2>&1 || \
+      dpkg --purge --force-all xdg-utils >/dev/null 2>&1 || true
+  fi
+
+  rm -rf "$STUB_ROOT" "$STUB_DEB"
+  mkdir -p "$STUB_ROOT/DEBIAN" "$STUB_ROOT/$REL_PREFIX/bin"
+  cat > "$STUB_ROOT/DEBIAN/control" <<EOF
+Package: $STUB_NAME
+Version: $STUB_VERSION
+Architecture: all
+Maintainer: WaffleHouse-Client
+Section: misc
+Priority: optional
+Provides: xdg-utils
+Conflicts: xdg-utils
+Replaces: xdg-utils
+Description: Minimal xdg-utils compatibility provider for WaffleHouse-Client Termux
+ Satisfies Qt's xdg-utils dependency without the desktop package's Perl/CPAN
+ install hook.  xdg-open delegates to Termux/Android helpers.
+EOF
+
+  cat > "$STUB_ROOT/$REL_PREFIX/bin/xdg-open" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+[ "$#" -gt 0 ] || { echo "usage: xdg-open URL|FILE" >&2; exit 2; }
+target=$1
+case "$target" in
+  http://*|https://*)
+    if command -v termux-open-url >/dev/null 2>&1; then
+      exec termux-open-url "$target"
+    fi
+    ;;
+esac
+if command -v termux-open >/dev/null 2>&1; then
+  exec termux-open "$target"
+fi
+if command -v am >/dev/null 2>&1; then
+  exec am start -a android.intent.action.VIEW -d "$target"
+fi
+echo "No Android opener is available for: $target" >&2
+exit 1
+EOF
+  chmod 0755 "$STUB_ROOT/$REL_PREFIX/bin/xdg-open"
+
+  dpkg-deb --build "$STUB_ROOT" "$STUB_DEB" >/dev/null
+  dpkg -i "$STUB_DEB" >/dev/null
+  rm -rf "$STUB_ROOT" "$STUB_DEB"
 }
 
 recover_termux_dpkg() {
   [ "$DRY_RUN" -eq 0 ] || return 0
   need_cmd dpkg || return 0
-  need_cmd perl || return 0
   if dpkg --audit 2>/dev/null | grep -q .; then
-    echo "==> Recovering interrupted Termux package configuration"
-    prepare_termux_cpan_home
-    HOME="$CPAN_STAGE_HOME" dpkg --configure -a
-    rm -rf "$CPAN_STAGE_HOME"
+    echo "==> Recovering interrupted Termux package configuration without CPAN"
+    install_xdg_utils_compat
+    dpkg --configure -a
   fi
 }
 
@@ -140,25 +189,24 @@ install_packages() {
     need_cmd pkg || { echo "Termux 'pkg' command not found." >&2; exit 1; }
   fi
 
-  # If a previous Qt/xdg-utils install stopped while CPAN was unreachable,
-  # finish that transaction first using the alternate mirror configuration.
+  # Repair a previous interrupted Qt/xdg-utils transaction first, but never
+  # invoke the official xdg-utils CPAN post-install path.
+  install_xdg_utils_compat
   recover_termux_dpkg
 
   echo "==> Refreshing Termux package metadata"
   run pkg update -y
 
   # Qt 6 is currently supplied from the official Termux X11 repository.  The
-  # executable does not launch Qt Widgets/X11; only Qt Core/Gui/Network are
+  # executable does not launch Qt Widgets/X11; only Qt Core/Network are
   # linked for the existing WaffleHouse shared protocol/TUI code.
   echo "==> Enabling official Termux X11 repository for Qt 6 libraries"
   run pkg install -y x11-repo
   run pkg update -y
 
-  # Install Perl before Qt so we can configure the CPAN mirror used by the
-  # xdg-utils post-install hook pulled in by qt6-qtbase.
-  echo "==> Preparing resilient CPAN mirror for Termux Qt dependency"
-  run pkg install -y perl
-  prepare_termux_cpan_home
+  # Reassert the local xdg-utils provider after repository setup so apt sees
+  # the Qt dependency as already satisfied without pulling Perl/CPAN.
+  install_xdg_utils_compat
 
   # Keep Termux package names separate from pkg-config module names.  In
   # particular, the Opus package is named libopus while it exports opus.pc.
@@ -178,16 +226,8 @@ install_packages() {
   fi
 
   echo "==> Installing WaffleHouse build/runtime dependencies"
-  # Preserve the temporary HOME only for this package transaction.  This lets
-  # xdg-utils use MetaCPAN without altering the user's own ~/.cpan settings.
-  if [ "$DRY_RUN" -eq 1 ]; then
-    # shellcheck disable=SC2086 -- intentional word splitting of package list.
-    run pkg install -y $TERMUX_DEPS
-  else
-    # shellcheck disable=SC2086 -- intentional word splitting of package list.
-    HOME="$CPAN_STAGE_HOME" pkg install -y $TERMUX_DEPS
-  fi
-  rm -rf "$CPAN_STAGE_HOME"
+  # shellcheck disable=SC2086 -- intentional word splitting of package list.
+  run pkg install -y $TERMUX_DEPS
 }
 
 install_packages

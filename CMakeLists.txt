@@ -15,7 +15,7 @@ set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
 
 find_package(Threads REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Network)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(NCURSESW REQUIRED IMPORTED_TARGET ncursesw)
@@ -87,7 +87,6 @@ target_compile_definitions(${APP_EXECUTABLE} PRIVATE
 target_link_libraries(${APP_EXECUTABLE} PRIVATE
     wafflehouse_sipcore
     Qt6::Core
-    Qt6::Gui
     Qt6::Network
     PkgConfig::SODIUM
     PkgConfig::NCURSESW

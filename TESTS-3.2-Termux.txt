@@ -12,5 +12,7 @@ PASS: media compile guard and YouTube-removal baseline regression.
 PASS: Termux 3.2 source/feature parity gate.
 PASS: all retained shell scripts parse with `sh -n`.
 PASS: Termux builder dry-run reaches dependency, PJSIP, CMake build, and install stages.
+PASS: build-termux.sh contains no executable Perl/CPAN invocation.
+PASS: local xdg-utils compatibility package control/payload validates with dpkg-deb.
 
 Desktop-only assertions tied to the former unified Linux/FreeBSD GUI builder were retired from the Termux default suite because this release intentionally builds a dedicated CLI target.
