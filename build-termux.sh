@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-APP="WaffleHouse-Client-Termux Build 0.5"
+APP="WaffleHouse-Client-Termux Build 0.6"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PREFIX_EXPECTED="/data/data/com.termux/files/usr"
 BUILD="$ROOT/build-termux"
@@ -82,12 +82,12 @@ install_xdg_provider(){
   install -d -m 0755 "$stage/DEBIAN"
   cat > "$stage/DEBIAN/control" <<CTRL
 Package: wafflehouse-termux-xdg-provider
-Version: 0.5.0
+Version: 0.6.0
 Architecture: all
 Maintainer: WaffleHouse-Client
 Provides: xdg-utils
 Conflicts: xdg-utils
-Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.5
+Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.6
  Contains no files. Termux's existing xdg-open command remains owned by termux-tools.
 CTRL
   chmod 0644 "$stage/DEBIAN/control"

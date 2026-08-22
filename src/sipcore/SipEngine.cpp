@@ -1548,6 +1548,12 @@ std::vector<SipTraceEntry> SipEngine::sipTrace(int id)const
     if(archived->snapshot.purpose!=CallPurpose::Phone) throw std::runtime_error("SIP trace is limited to normal Phone calls");
     return archived->sipTrace;
 }
+
+std::vector<SipTraceEntry> SipEngine::globalSipTrace()const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return globalSipTrace_;
+}
 void SipEngine::startSipTraceFile(int id,const std::string& path){requirePhoneCall(id)->startSipTraceFile(path);logger_.info("SIP trace file started: "+path);}
 void SipEngine::stopSipTraceFile(int id){auto c=requirePhoneCall(id);auto p=c->sipTracePath();c->stopSipTraceFile();logger_.info("SIP trace file stopped"+(p.empty()?std::string{}:": "+p));}
 bool SipEngine::sipTraceRecording(int id)const
@@ -1577,14 +1583,19 @@ void SipEngine::onSipMessage(SipTraceEntry entry)
             if(it!=calls_.end()) call=it->second;
         }
         if(!call){
+            // Keep a bounded endpoint-wide trace for registration and other
+            // non-call SIP transactions.  This is essential on Termux where
+            // REGISTER/401/200 diagnostics need to be visible in /siplog.
+            globalSipTrace_.push_back(entry);
+            if(globalSipTrace_.size()>256)
+                globalSipTrace_.erase(globalSipTrace_.begin(), globalSipTrace_.begin() + (globalSipTrace_.size()-256));
+
             // The monitor can observe the initial INVITE before makeCall()/the
             // incoming-call callback has registered its CallSession. Buffer
-            // only INVITE transactions for that short race window; buffering
-            // arbitrary unmatched OPTIONS/NOTIFY/etc. would retain unrelated
-            // raw SIP traffic and grow memory unnecessarily.
+            // INVITE transactions for that short race window as before.
             if(entry.method=="INVITE" && !entry.callIdString.empty()){
                 auto& queue=pendingSip_[entry.callIdString];
-                if(queue.size()<32) queue.push_back(std::move(entry));
+                if(queue.size()<32) queue.push_back(entry);
                 if(pendingSip_.size()>64) pendingSip_.erase(pendingSip_.begin());
             }
             return;

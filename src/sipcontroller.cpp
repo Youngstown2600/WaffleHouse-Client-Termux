@@ -7,6 +7,7 @@
 
 #include <QDateTime>
 #include <QSettings>
+#include <pjsip/sip_errno.h>
 
 #include <algorithm>
 #include <exception>
@@ -343,8 +344,10 @@ bool SipController::disconnectAccount(const QString &accountId, QString *error)
         // registration transaction has already timed out.  Disconnect is
         // idempotent from the user's perspective: the account is already
         // offline, so do not surface a scary secondary error.
-        if (e.status == PJ_EINVALIDOP) {
-            appendActivity(QStringLiteral("SIP account already offline: %1").arg(id));
+        if (e.status == PJ_EINVALIDOP || e.status == PJSIP_EBUSY) {
+            appendActivity(e.status == PJSIP_EBUSY
+                ? QStringLiteral("SIP registration shutdown still in progress: %1").arg(id)
+                : QStringLiteral("SIP account already offline: %1").arg(id));
             emit accountStateChanged(id); emit stateChanged();
             return true;
         }
@@ -432,7 +435,7 @@ std::vector<CallSnapshot> SipController::calls() const { if(!m_engine||!m_engine
 CallSnapshot SipController::call(int id,bool*ok)const{if(ok)*ok=false;if(!m_engine)return{};try{auto r=m_engine->callSnapshot(id);if(ok)*ok=true;return r;}catch(...){return{};}}
 
 QString SipController::formatTraceLine(const trunkmonkey::SipTraceEntry&e){const QString when=QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(e.timestampMs)).toString(QStringLiteral("HH:mm:ss.zzz"));const QString dir=e.direction==SipDirection::Sent?QStringLiteral(">>"):QStringLiteral("<<");QString label=q(e.label);if(label.isEmpty())label=q(e.method);return QStringLiteral("%1  %2  call=%3  %4").arg(when,dir).arg(e.callId).arg(label);}
-QString SipController::sipLogText(int id)const{if(!m_engine)return QStringLiteral("SIP engine is not running.");struct Item{std::uint64_t ts;QString text;QString raw;};std::vector<Item>items;for(const auto&c:calls()){if(id>=0&&c.id!=id)continue;try{for(const auto&e:m_engine->sipTrace(c.id))items.push_back({e.timestampMs,formatTraceLine(e),q(e.rawMessage)});}catch(...){}}std::sort(items.begin(),items.end(),[](const Item&a,const Item&b){return a.ts<b.ts;});QStringList out;for(const auto&i:items){out<<i.text;if(!i.raw.trimmed().isEmpty())for(const QString&line:i.raw.trimmed().split('\n'))out<<QStringLiteral("    %1").arg(line.trimmed());out<<QString();}return out.isEmpty()?QStringLiteral("No SIP messages observed for calls in this session."):out.join('\n');}
+QString SipController::sipLogText(int id)const{if(!m_engine)return QStringLiteral("SIP engine is not running.");struct Item{std::uint64_t ts;QString text;QString raw;};std::vector<Item>items;if(id<0){try{for(const auto&e:m_engine->globalSipTrace())items.push_back({e.timestampMs,formatTraceLine(e),q(e.rawMessage)});}catch(...){}}for(const auto&c:calls()){if(id>=0&&c.id!=id)continue;try{for(const auto&e:m_engine->sipTrace(c.id))items.push_back({e.timestampMs,formatTraceLine(e),q(e.rawMessage)});}catch(...){}}std::sort(items.begin(),items.end(),[](const Item&a,const Item&b){return a.ts<b.ts;});QStringList out;for(const auto&i:items){out<<i.text;if(!i.raw.trimmed().isEmpty())for(const QString&line:i.raw.trimmed().split('\n'))out<<QStringLiteral("    %1").arg(line.trimmed());out<<QString();}return out.isEmpty()?QStringLiteral("No SIP messages observed in this session."):out.join('\n');}
 QString SipController::ladderText(int id)const{if(!m_engine||id<0)return QStringLiteral("Select a call to display its SIP ladder.");try{return q(m_engine->sipLadder(id));}catch(const std::exception&e){return QStringLiteral("Unable to build SIP ladder: %1").arg(QString::fromLocal8Bit(e.what()));}}
 
 QString SipController::audioSummary()const{if(!m_engine||!m_engine->started())return QStringLiteral("Audio: SIP endpoint stopped");try{const auto a=m_engine->audioStatus();return QStringLiteral("Capture [%1] %2 | Playback [%3] %4 | Auto-switch %5 | Route %6").arg(a.captureId).arg(q(a.captureDevice)).arg(a.playbackId).arg(q(a.playbackDevice)).arg(a.autoSwitchEnabled?QStringLiteral("ON"):QStringLiteral("OFF")).arg(q(a.systemRoute));}catch(...){return QStringLiteral("Audio status unavailable");}}

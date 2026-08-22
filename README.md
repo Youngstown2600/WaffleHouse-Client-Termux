@@ -1,4 +1,4 @@
-# WaffleHouse-Client-Termux Build 0.5
+# WaffleHouse-Client-Termux Build 0.6
 
 A dedicated Android/Termux CLI build of WaffleHouse-Client. This is **not** the Linux desktop binary with `--cli` forced on: the Termux target has its own entry point and compiles no Qt Widgets/GUI frontend code.
 
@@ -27,8 +27,8 @@ A dedicated Android/Termux CLI build of WaffleHouse-Client. This is **not** the 
 
 ```sh
 pkg install unzip
-unzip WaffleHouse-Client-Termux-Build-0.5.zip
-cd WaffleHouse-Client-Termux-Build-0.5
+unzip WaffleHouse-Client-Termux-Build-0.6.zip
+cd WaffleHouse-Client-Termux-Build-0.6
 chmod +x build.sh
 ./build.sh --clean
 ```

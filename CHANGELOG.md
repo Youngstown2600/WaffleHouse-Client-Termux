@@ -1,3 +1,10 @@
+## Build 0.6 — SIP registration tracing / busy disconnect cleanup
+
+- /siplog now includes endpoint-wide REGISTER/401/403/200/OPTIONS/NOTIFY traffic, not only call-associated SIP.
+- Keeps a bounded 256-message global SIP trace in memory.
+- PJSIP_EBUSY during disconnect after a timed-out registration is treated as asynchronous shutdown, not a fatal user-facing error.
+- Retains all Build 0.5 Termux, SIP password, TMPDIR, audio, and CPAN-free fixes.
+
 ## Build 0.5 — SIP credential persistence / timeout cleanup
 
 - Fixed a Termux CLI bug where a SIP 408/network error cleared the in-memory SIP password even when **Save password** was enabled, causing the next settings write to erase the saved credential.
