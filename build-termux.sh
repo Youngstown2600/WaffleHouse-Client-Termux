@@ -89,11 +89,60 @@ if [ "$UNINSTALL" -eq 1 ]; then
   exit 0
 fi
 
+prepare_termux_cpan_home() {
+  # qt6-qtbase depends on Termux xdg-utils.  xdg-utils currently installs the
+  # Perl File::MimeInfo module from CPAN in its post-install script.  Do not
+  # depend on www.cpan.org being reachable: give that package transaction a
+  # throw-away CPAN config which prefers MetaCPAN instead.  The temporary HOME
+  # also means we do not rewrite the user's personal CPAN configuration.
+  CPAN_STAGE_HOME="$ROOT_DIR/.termux-cpan-stage"
+  rm -rf "$CPAN_STAGE_HOME"
+  mkdir -p "$CPAN_STAGE_HOME/.cpan/CPAN"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  [dry-run] CPAN mirror: https://cpan.metacpan.org/ (temporary HOME)"
+    return 0
+  fi
+
+  need_cmd perl || {
+    echo "Perl is required to prepare the Termux Qt dependency workaround." >&2
+    return 1
+  }
+
+  HOME="$CPAN_STAGE_HOME" perl -MCPAN::Config -MData::Dumper -e '''
+    $CPAN::Config->{urllist} = [q[https://cpan.metacpan.org/], q[https://www.cpan.org/]];
+    $CPAN::Config->{pushy_https} = 0;
+    $CPAN::Config->{connect_to_internet_ok} = 1;
+    $Data::Dumper::Terse = 1;
+    $Data::Dumper::Purity = 1;
+    my $path = "$ENV{HOME}/.cpan/CPAN/MyConfig.pm";
+    open my $fh, ">", $path or die "cannot write $path: $!";
+    print {$fh} "\$CPAN::Config = ", Data::Dumper::Dumper($CPAN::Config), ";\n1;\n";
+    close $fh or die "cannot close $path: $!";
+  '''
+}
+
+recover_termux_dpkg() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  need_cmd dpkg || return 0
+  need_cmd perl || return 0
+  if dpkg --audit 2>/dev/null | grep -q .; then
+    echo "==> Recovering interrupted Termux package configuration"
+    prepare_termux_cpan_home
+    HOME="$CPAN_STAGE_HOME" dpkg --configure -a
+    rm -rf "$CPAN_STAGE_HOME"
+  fi
+}
+
 install_packages() {
   [ "$AUTO_DEPS" -eq 1 ] || return 0
   if [ "$DRY_RUN" -eq 0 ]; then
     need_cmd pkg || { echo "Termux 'pkg' command not found." >&2; exit 1; }
   fi
+
+  # If a previous Qt/xdg-utils install stopped while CPAN was unreachable,
+  # finish that transaction first using the alternate mirror configuration.
+  recover_termux_dpkg
 
   echo "==> Refreshing Termux package metadata"
   run pkg update -y
@@ -104,6 +153,12 @@ install_packages() {
   echo "==> Enabling official Termux X11 repository for Qt 6 libraries"
   run pkg install -y x11-repo
   run pkg update -y
+
+  # Install Perl before Qt so we can configure the CPAN mirror used by the
+  # xdg-utils post-install hook pulled in by qt6-qtbase.
+  echo "==> Preparing resilient CPAN mirror for Termux Qt dependency"
+  run pkg install -y perl
+  prepare_termux_cpan_home
 
   # Keep Termux package names separate from pkg-config module names.  In
   # particular, the Opus package is named libopus while it exports opus.pc.
@@ -123,8 +178,16 @@ install_packages() {
   fi
 
   echo "==> Installing WaffleHouse build/runtime dependencies"
-  # shellcheck disable=SC2086 -- intentional word splitting of package list.
-  run pkg install -y $TERMUX_DEPS
+  # Preserve the temporary HOME only for this package transaction.  This lets
+  # xdg-utils use MetaCPAN without altering the user's own ~/.cpan settings.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    # shellcheck disable=SC2086 -- intentional word splitting of package list.
+    run pkg install -y $TERMUX_DEPS
+  else
+    # shellcheck disable=SC2086 -- intentional word splitting of package list.
+    HOME="$CPAN_STAGE_HOME" pkg install -y $TERMUX_DEPS
+  fi
+  rm -rf "$CPAN_STAGE_HOME"
 }
 
 install_packages

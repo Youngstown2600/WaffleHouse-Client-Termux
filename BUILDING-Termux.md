@@ -23,6 +23,8 @@ The build script enables the Termux X11 package repository because Qt 6 librarie
 
 The builder installs Clang, CMake, Qt 6 Core/Gui/Network libraries, libsodium, ncurses, OpenSSL, libuuid, PortAudio, Opus, mpv, FFmpeg and Termux:API support. It also builds a managed PJSIP 2.17 copy configured for Termux.
 
+Qt 6 currently pulls Termux `xdg-utils`, whose post-install hook retrieves Perl `File::MimeInfo` from CPAN. The builder uses a temporary CPAN configuration that prefers `https://cpan.metacpan.org/`, so a timeout at `www.cpan.org` does not block WaffleHouse installation or overwrite the user's personal CPAN settings.
+
 ## 4. Android permissions
 
 For SIP microphone capture, install the matching Termux:API Android app and grant its Microphone permission. Inside Termux the `termux-api` package is installed by the builder.

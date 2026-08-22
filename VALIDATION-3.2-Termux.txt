@@ -8,6 +8,7 @@ Validated in the packaging environment:
 - Termux builder enables the official X11 repository for Qt 6 packages but does not require an X server at runtime.
 - Builder installs Clang/CMake/pkg-config, Qt 6, libsodium, ncurses, OpenSSL, libuuid, PortAudio, Opus, mpv, FFmpeg, and termux-api.
 - Managed PJSIP 2.17 path is configured with external PortAudio and Termux's Android OpenSL ES backend.
+- Termux dependency setup isolates CPAN configuration in a temporary HOME and prefers MetaCPAN for qt6-qtbase/xdg-utils File::MimeInfo installation; interrupted dpkg configuration is recoverable on the next builder run.
 - PJSIP limits remain 32 accounts / 64 calls / 256 IO queue handles.
 - CLI compact banner and dialog sizing paths support narrow phone terminals down to 30 columns x 8 rows.
 - /menu compact command map is present.
