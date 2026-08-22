@@ -203,9 +203,15 @@ bool TerminalUi::start()
 
     loadConnections();
     m_sipController->initialize();
-    append(global,
-           QStringLiteral("Integrated multi-account SIP/VoIP softphone ready. Add SIP accounts with /add; use /phone for call controls."),
-           false);
+    if (!m_sipController->started() && !m_sipController->initializationError().isEmpty()) {
+        append(global,
+               QStringLiteral("[error] SIP engine startup failed: %1").arg(m_sipController->initializationError()),
+               false);
+    } else {
+        append(global,
+               QStringLiteral("Integrated multi-account SIP/VoIP softphone ready. Add SIP accounts with /add; use /phone for call controls."),
+               false);
+    }
     if (m_connections.isEmpty()) {
         append(global,
                QStringLiteral("No saved connections. Use /add to create one."),

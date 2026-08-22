@@ -51,6 +51,7 @@ public:
     QString registrationText() const;
     QString registrationText(const QString &accountId) const;
     QString engineLogPath() const;
+    QString initializationError() const { return m_initializationError; }
 
     bool startEngine(QString *error = nullptr);
     void stopEngine();
@@ -111,6 +112,7 @@ private:
     QHash<QString, trunkmonkey::SipProfile> m_profiles;
     QSet<QString> m_registrationWanted;
     QString m_selectedAccountId;
+    QString m_initializationError;
     QSet<int> m_seenCalls;
     QHash<int, QString> m_lastCallStates;
     QHash<QString, QString> m_lastRegistrationStates;

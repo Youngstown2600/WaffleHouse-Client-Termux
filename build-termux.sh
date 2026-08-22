@@ -115,6 +115,11 @@ pjsip_limits_ok(){
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJSUA_MAX_ACC[[:space:]]+32([[:space:]]|$)' "$cfg" || return 1
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJSUA_MAX_CALLS[[:space:]]+64([[:space:]]|$)' "$cfg" || return 1
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJ_IOQUEUE_MAX_HANDLES[[:space:]]+256([[:space:]]|$)' "$cfg" || return 1
+  # A native Termux process has no Java VM. PJSIP's Android target enables
+  # its JNI audio device by default, so require our explicit PortAudio-only
+  # configuration before trusting a cached managed PJSIP install.
+  grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO[[:space:]]+1([[:space:]]|$)' "$cfg" || return 1
+  grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI[[:space:]]+0([[:space:]]|$)' "$cfg" || return 1
 }
 
 build_pjsip(){
@@ -143,6 +148,18 @@ build_pjsip(){
 #define PJ_HAS_IPV6 1
 #define PJMEDIA_HAS_VIDEO 0
 #define PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO 1
+/* Termux is a native executable, not a Java/JNI Android application.
+ * PJSIP defaults this backend to PJ_ANDROID (enabled), which requires a JVM.
+ * Audio is provided by Termux PortAudio/OpenSL ES instead. */
+#define PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI 0
+#define PJMEDIA_AUDIO_DEV_HAS_OPENSL 0
+#define PJMEDIA_AUDIO_DEV_HAS_OBOE 0
+/* Avoid Android MediaCodec/JNI codec factories in the native Termux process. */
+#define PJMEDIA_HAS_AND_MEDIA_AMRNB 0
+#define PJMEDIA_HAS_AND_MEDIA_AMRWB 0
+#define PJMEDIA_HAS_AND_MEDIA_H264 0
+#define PJMEDIA_HAS_AND_MEDIA_VP8 0
+#define PJMEDIA_HAS_AND_MEDIA_VP9 0
 
 /* WaffleHouse-Client SIP capacity requirements. Keep these in the
  * PJSIP build itself so the libraries and application headers agree. */
@@ -174,7 +191,7 @@ CFG
     echo "Expected PJSUA_MAX_ACC=32, PJSUA_MAX_CALLS=64, PJ_IOQUEUE_MAX_HANDLES=256." >&2
     exit 1
   fi
-  say "Verified PJSIP limits: accounts=32 calls=64 ioqueue=256"
+  say "Verified PJSIP: accounts=32 calls=64 ioqueue=256 audio=PortAudio JNI=off"
 }
 
 run_tests(){

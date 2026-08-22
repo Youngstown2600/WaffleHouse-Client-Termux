@@ -39,3 +39,5 @@ Feature preservation gate
 Limitations of this validation environment
 ------------------------------------------
 The final native Android/Termux compile and live SIP audio call cannot be executed in this non-Android build environment. The package includes a Termux-native builder and source/parity gate for execution on the target phone.
+
+- Termux SIP runtime: PJSIP Android JNI/MediaCodec audio paths are disabled; external Termux PortAudio/OpenSL ES is the only audio backend, and startup failures retain their original PJSUA2 diagnostic.

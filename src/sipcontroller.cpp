@@ -45,6 +45,7 @@ void SipController::initialize()
 {
     if (m_initialized) return;
     m_initialized = true;
+    m_initializationError.clear();
     try {
         trunkmonkey::runtime::ensureUserDirectories();
         m_logger = std::make_unique<trunkmonkey::Logger>(trunkmonkey::runtime::logPath().string());
@@ -58,11 +59,17 @@ void SipController::initialize()
         m_engine->setAudioAutoSwitch(m_audioAutoSwitch);
         appendActivity(QStringLiteral("Softphone endpoint ready for %1 SIP account(s).").arg(m_profiles.size()));
     } catch (const pj::Error &e) {
-        appendActivity(QStringLiteral("Softphone initialization failed: %1").arg(pjsipErrorText(e)));
+        m_initializationError = pjsipErrorText(e);
+        if (m_logger) m_logger->error("Softphone initialization failed: " + s(m_initializationError));
+        appendActivity(QStringLiteral("Softphone initialization failed: %1").arg(m_initializationError));
     } catch (const std::exception &e) {
-        appendActivity(QStringLiteral("Softphone initialization failed: %1").arg(QString::fromLocal8Bit(e.what())));
+        m_initializationError = QString::fromLocal8Bit(e.what());
+        if (m_logger) m_logger->error("Softphone initialization failed: " + s(m_initializationError));
+        appendActivity(QStringLiteral("Softphone initialization failed: %1").arg(m_initializationError));
     } catch (...) {
-        appendActivity(QStringLiteral("Softphone initialization failed with an unknown PJSUA2 error."));
+        m_initializationError = QStringLiteral("Unknown PJSUA2 initialization error.");
+        if (m_logger) m_logger->error("Softphone initialization failed with an unknown PJSUA2 error.");
+        appendActivity(QStringLiteral("Softphone initialization failed: %1").arg(m_initializationError));
     }
     m_pollTimer.start();
     emit stateChanged();
@@ -108,7 +115,12 @@ bool SipController::addAccount(const QString &accountId, const SipProfile &profi
         m_profiles.insert(id, profile);
         if (!hadValidSelection) m_selectedAccountId = id;
         if (m_initialized) {
-            if (!m_engine) throw std::runtime_error("SIP engine unavailable");
+            if (!m_engine) {
+                const QString detail = m_initializationError.isEmpty()
+                    ? QStringLiteral("SIP engine unavailable")
+                    : QStringLiteral("SIP engine unavailable: %1").arg(m_initializationError);
+                throw std::runtime_error(s(detail));
+            }
             if (!m_engine->started()) {
                 std::vector<std::pair<std::string,SipProfile>> list;
                 for (auto it=m_profiles.constBegin(); it!=m_profiles.constEnd(); ++it)
@@ -251,7 +263,12 @@ bool SipController::startEngine(QString *error)
 {
     try {
         if (!m_initialized) initialize();
-        if (!m_engine) throw std::runtime_error("SIP engine unavailable");
+        if (!m_engine) {
+                const QString detail = m_initializationError.isEmpty()
+                    ? QStringLiteral("SIP engine unavailable")
+                    : QStringLiteral("SIP engine unavailable: %1").arg(m_initializationError);
+                throw std::runtime_error(s(detail));
+            }
         if (!m_engine->started()) {
             std::vector<std::pair<std::string,SipProfile>> list;
             for (auto it=m_profiles.constBegin(); it!=m_profiles.constEnd(); ++it) list.push_back({s(it.key()), it.value()});

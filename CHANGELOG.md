@@ -363,3 +363,5 @@
 
 
 - Fixed Linux/GCC and FreeBSD/Clang compilation of direct-transfer key cleanup by keeping the temporary libsodium secret buffer mutable before `sodium_memzero()`.
+
+- Termux SIP runtime: PJSIP Android JNI/MediaCodec audio paths are disabled; external Termux PortAudio/OpenSL ES is the only audio backend, and startup failures retain their original PJSUA2 diagnostic.
