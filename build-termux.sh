@@ -129,7 +129,13 @@ install_xdg_utils_compat() {
   fi
 
   rm -rf "$STUB_ROOT" "$STUB_DEB"
-  mkdir -p "$STUB_ROOT/DEBIAN" "$STUB_ROOT/$REL_PREFIX/bin"
+  # Termux installations may use a restrictive umask (for example 077).
+  # dpkg-deb requires DEBIAN/ to be 0755..0775, and package payload
+  # directories should be traversable after installation. Set the modes
+  # explicitly instead of inheriting the caller's umask.
+  install -d -m 0755 "$STUB_ROOT"
+  install -d -m 0755 "$STUB_ROOT/DEBIAN"
+  install -d -m 0755 "$STUB_ROOT/$REL_PREFIX/bin"
   cat > "$STUB_ROOT/DEBIAN/control" <<EOF
 Package: $STUB_NAME
 Version: $STUB_VERSION
@@ -144,6 +150,7 @@ Description: Minimal xdg-utils compatibility provider for WaffleHouse-Client Ter
  Satisfies Qt's xdg-utils dependency without the desktop package's Perl/CPAN
  install hook.  xdg-open delegates to Termux/Android helpers.
 EOF
+  chmod 0644 "$STUB_ROOT/DEBIAN/control"
 
   cat > "$STUB_ROOT/$REL_PREFIX/bin/xdg-open" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/sh
