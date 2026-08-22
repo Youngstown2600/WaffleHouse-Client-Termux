@@ -35,6 +35,11 @@
 #include <wchar.h>
 #include <stdexcept>
 
+#ifdef WAFFLEHOUSE_TERMUX
+#include <sys/ioctl.h>
+#include <unistd.h>
+#endif
+
 #include <curses.h>
 
 namespace {
@@ -45,6 +50,53 @@ constexpr int PairUnread = 4;
 constexpr int PairBorder = 5;
 constexpr int PairSecure = 6;
 constexpr int PairFooter = 7;
+
+struct ResponsiveLayout {
+    bool valid = false;
+    bool showConnections = false;
+    bool showSeparator = false;
+    bool showHint = false;
+    int contentTop = 1;
+    int contentBottom = 1;
+    int separatorRow = -1;
+    int hintRow = -1;
+    int statusRow = -1;
+    int inputRow = -1;
+};
+
+ResponsiveLayout responsiveLayout(int height, int width)
+{
+    ResponsiveLayout layout;
+    layout.valid = height >= 6 && width >= 24;
+    if (!layout.valid) return layout;
+
+    layout.inputRow = height - 1;
+    layout.statusRow = height - 2;
+    int nextBottom = height - 3;
+
+    // On phone-sized/keyboard-open terminals conversation space wins.  Add the
+    // optional chrome back only when there are enough rows to keep >=4 content rows.
+    layout.showHint = height >= 10 && width >= 42;
+    if (layout.showHint) layout.hintRow = nextBottom--;
+
+    layout.showSeparator = height >= 8;
+    if (layout.showSeparator) layout.separatorRow = nextBottom--;
+
+    layout.showConnections = height >= 9 && width >= 34;
+    layout.contentTop = layout.showConnections ? 2 : 1;
+    layout.contentBottom = std::max(layout.contentTop, nextBottom);
+    return layout;
+}
+
+int adaptiveBoxWidth(int cols, int preferredMax, int margin)
+{
+    return std::max(12, std::min(preferredMax, std::max(12, cols - margin)));
+}
+
+int adaptiveBoxHeight(int lines, int preferredMax, int margin)
+{
+    return std::max(6, std::min(preferredMax, std::max(6, lines - margin)));
+}
 
 QString timestamp()
 {
@@ -572,10 +624,77 @@ void TerminalUi::tick()
     if (m_quitting) {
         return;
     }
+    syncTerminalGeometry();
     handleInput();
     updateAutoPresence();
     pumpFileTransfers();
     draw();
+}
+
+void TerminalUi::syncTerminalGeometry()
+{
+    if (!m_cursesActive) return;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now < m_nextGeometryCheckMs) return;
+    m_nextGeometryCheckMs = now + 150;
+
+    int rows = LINES;
+    int cols = COLS;
+#ifdef WAFFLEHOUSE_TERMUX
+    struct winsize ws {};
+    if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0 && ws.ws_col > 0) {
+        rows = static_cast<int>(ws.ws_row);
+        cols = static_cast<int>(ws.ws_col);
+        if (rows != LINES || cols != COLS) {
+            resizeterm(rows, cols);
+            clearok(stdscr, TRUE);
+        }
+    }
+#endif
+
+    if (rows != m_lastTerminalRows || cols != m_lastTerminalCols) {
+        m_lastTerminalRows = rows;
+        m_lastTerminalCols = cols;
+        updateTelnetTerminalGeometry();
+        clearok(stdscr, TRUE);
+    }
+}
+
+int TerminalUi::terminalPaneColumns() const
+{
+    // Leave one cell of breathing room on each side. Most BBS layouts are
+    // authored at <=80 columns; advertising a wider NAWS can make old systems
+    // generate layouts that are less usable on a phone.
+    return std::clamp(COLS - 2, 20, 80);
+}
+
+int TerminalUi::terminalPaneRows() const
+{
+    const auto layout = responsiveLayout(LINES, COLS);
+    if (!layout.valid) return 5;
+    return std::clamp(layout.contentBottom - layout.contentTop + 1, 5, 100);
+}
+
+void TerminalUi::updateTelnetTerminalGeometry()
+{
+    if (!m_cursesActive) return;
+    const int cols = terminalPaneColumns();
+    const int rows = terminalPaneRows();
+
+    for (Buffer *buffer : m_buffers) {
+        if (buffer && buffer->kind == QStringLiteral("terminal") && buffer->terminal) {
+            if (buffer->terminal->columns() != cols || buffer->terminal->rows() != rows) {
+                buffer->terminal->resize(cols, rows);
+            }
+        }
+    }
+    for (ConnectionEntry *entry : m_connections) {
+        if (entry && entry->backend && entry->connected
+            && entry->settings.protocol == ConnectionSettings::Protocol::Telnet) {
+            entry->backend->setTerminalSize(cols, rows);
+        }
+    }
 }
 
 void TerminalUi::markUserActivity()
@@ -651,7 +770,7 @@ void TerminalUi::requestClientVersion(ConnectionEntry *entry, QString target)
     QTimer::singleShot(3500, this, [this, key, target, protocol] {
         if (!m_pendingVersionQueries.remove(key)) return;
         status(protocol == ConnectionSettings::Protocol::Oscar
-            ? QStringLiteral("[version] %1: no Build 0.8 reply; peer may be an older WaffleHouse/CPX client or another AIM client (exact version unavailable)").arg(target)
+            ? QStringLiteral("[version] %1: no Build 0.9 reply; peer may be an older WaffleHouse/CPX client or another AIM client (exact version unavailable)").arg(target)
             : QStringLiteral("[version] %1: no CTCP VERSION reply received").arg(target));
     });
     if (auto *irc = qobject_cast<IrcBackend *>(entry->backend)) {
@@ -1059,43 +1178,88 @@ void TerminalUi::drawHeader(int width)
     ConnectionEntry *entry = buffer ? connectionById(buffer->connectionId) : nullptr;
 
     QString context;
-    if (entry) context += QStringLiteral("  •  %1").arg(connectionLabel(entry));
-    if (buffer) {
-        context += QStringLiteral("  •  %1:%2").arg(buffer->number).arg(buffer->name);
-        if (buffer->kind == QStringLiteral("chat")
-            && m_secureRooms.hasRoom(buffer->connectionId, buffer->target)) {
-            context += QStringLiteral("  •  🔒 ROOM %1")
-                .arg(m_secureRooms.keyId(buffer->connectionId, buffer->target).left(8));
+    if (width >= 72) {
+        if (entry) context += QStringLiteral("  •  %1").arg(connectionLabel(entry));
+        if (buffer) {
+            context += QStringLiteral("  •  %1:%2").arg(buffer->number).arg(buffer->name);
+            if (buffer->kind == QStringLiteral("chat")
+                && m_secureRooms.hasRoom(buffer->connectionId, buffer->target)) {
+                context += QStringLiteral("  •  🔒 ROOM %1")
+                    .arg(m_secureRooms.keyId(buffer->connectionId, buffer->target).left(8));
+            }
         }
+    } else if (width >= 48) {
+        if (buffer) context = QStringLiteral(" • %1:%2").arg(buffer->number).arg(buffer->name);
+    } else if (buffer) {
+        context = QStringLiteral(" | %1:%2").arg(buffer->number).arg(buffer->name);
     }
 
-    const QString label = QStringLiteral("╭─ WAFFLEHOUSE-CLIENT-TERMUX %1%2 ").arg(appVersionString().toUpper(), context);
+    QString label;
+    if (width >= 58) {
+        label = QStringLiteral("╭─ WAFFLEHOUSE-CLIENT-TERMUX %1%2 ")
+                    .arg(appVersionString().toUpper(), context);
+    } else if (width >= 36) {
+        label = QStringLiteral("╭─ WH-TERMUX %1%2 ")
+                    .arg(appVersionString().toUpper(), context);
+    } else {
+        label = QStringLiteral("WH %1%2").arg(appVersionString().toUpper(), context);
+    }
+
     QString line = label;
-    const int fill = std::max(0, width - static_cast<int>(line.size()) - 1);
-    line += QString(fill, QChar(0x2500)); // ─
-    if (line.size() < width) line += QChar(0x256e); // ╮
-    safeAdd(0, 0, line.left(width), A_BOLD | (has_colors() ? COLOR_PAIR(PairHeader) : 0), width);
+    if (width >= 36) {
+        const int fill = std::max(0, width - static_cast<int>(line.size()) - 1);
+        line += QString(fill, QChar(0x2500));
+        if (line.size() < width) line += QChar(0x256e);
+    }
+    safeAdd(0, 0, line.left(width).leftJustified(width),
+            A_BOLD | (has_colors() ? COLOR_PAIR(PairHeader) : 0), width);
 }
 
 void TerminalUi::drawConnectionsBar(int row, int width)
 {
     QString line = QStringLiteral("│ ");
     int active = 0;
+    ConnectionEntry *selectedEntry = nullptr;
+    int selectedIndex = -1;
+
     for (int i = 0; i < m_connections.size(); ++i) {
         ConnectionEntry *entry = m_connections.at(i);
         if (!entry || (!entry->connected && !entry->connecting)) continue;
         ++active;
+        if (entry->id == m_selectedConnectionId) {
+            selectedEntry = entry;
+            selectedIndex = i;
+        }
+        if (width < 52) continue;
+
         const bool selected = entry->id == m_selectedConnectionId;
         const QString stateGlyph = entry->connecting ? QStringLiteral("◌") : QStringLiteral("●");
-        const QString token = QStringLiteral("%1 %2:%3")
+        QString label = connectionLabel(entry);
+        if (width < 72 && label.size() > 14) label = label.left(13) + QChar(0x2026);
+        const QString token = QStringLiteral("%1%2:%3")
                                   .arg(stateGlyph)
                                   .arg(i + 1)
-                                  .arg(connectionLabel(entry));
-        line += selected ? QStringLiteral("[%1]  ").arg(token) : QStringLiteral("%1  ").arg(token);
+                                  .arg(label);
+        line += selected ? QStringLiteral("[%1] ").arg(token) : QStringLiteral("%1 ").arg(token);
     }
-    if (!active) line += QStringLiteral("none active — /connect PROTOCOL:name or /telnet host:port");
+
+    if (!active) {
+        line += width >= 58
+            ? QStringLiteral("none active — /connect PROTOCOL:name or /telnet host:port")
+            : QStringLiteral("none active — /connect or /telnet");
+    } else if (width < 52) {
+        if (selectedEntry) {
+            line += QStringLiteral("%1 %2:%3")
+                    .arg(selectedEntry->connecting ? QStringLiteral("◌") : QStringLiteral("●"))
+                    .arg(selectedIndex + 1)
+                    .arg(connectionLabel(selectedEntry));
+        } else {
+            line += QStringLiteral("%1 active").arg(active);
+        }
+    }
+
     if (line.size() < width) line = line.leftJustified(width - 1);
-    if (line.size() < width) line += QChar(0x2502); // │
+    if (line.size() < width) line += QChar(0x2502);
     safeAdd(row, 0, line.left(width), A_DIM | (has_colors() ? COLOR_PAIR(PairBorder) : 0), width);
 }
 
@@ -1273,7 +1437,11 @@ void TerminalUi::drawBufferPane(Buffer *buffer,
 
     if (buffer->kind == QStringLiteral("terminal") && buffer->terminal) {
         const int height = bottom - top + 1;
-        const int cols = std::min(80, std::max(1, width - 2));
+        const int cols = std::clamp(width - 2, 20, 80);
+        const int rows = std::clamp(height, 5, 100);
+        if (buffer->terminal->columns() != cols || buffer->terminal->rows() != rows) {
+            buffer->terminal->resize(cols, rows);
+        }
         for (int r = 0; r < height && r < buffer->terminal->rows(); ++r) {
             int c = 0;
             while (c < cols && c < buffer->terminal->columns()) {
@@ -1313,9 +1481,9 @@ void TerminalUi::drawBufferPane(Buffer *buffer,
         && buffer->kind == QStringLiteral("connection")
         && entry
         && entry->settings.protocol == ConnectionSettings::Protocol::Oscar
-        && width >= 78;
+        && width >= 88;
     const bool memberPane = m_options.showSidePanes
-        && buffer->kind == QStringLiteral("chat") && width >= 78;
+        && buffer->kind == QStringLiteral("chat") && width >= 88;
 
     const int sideWidth = (buddyPane || memberPane)
         ? std::clamp(width / 5, 20, 28)
@@ -1372,10 +1540,16 @@ void TerminalUi::drawShortcutHint(int row, int width)
     move(row, 0);
     clrtoeol();
 
-    // Keep the proven keyboard cheat-sheet text intact while presenting it as
-    // the muted command rail in the 3.0 terminal shell.
-    const QString hint = QStringLiteral(
-        " Tab completes /commands | Ctrl-N/P buffers | Alt-1..9/F1..F9 jump | PgUp/PgDn scroll | ");
+    QString hint;
+    if (width >= 76) {
+        hint = QStringLiteral(" Tab completes /commands | Ctrl-N/P buffers | Alt-1..9/F1..F9 jump | PgUp/PgDn scroll | ");
+    } else if (width >= 54) {
+        hint = QStringLiteral(" Tab /commands | Ctrl-N/P buffers | Alt/F jump | Pg scroll ");
+    } else if (width >= 36) {
+        hint = QStringLiteral(" Tab cmds | Ctrl-N/P buffers | Pg scroll ");
+    } else {
+        hint = QStringLiteral(" Tab cmds | Ctrl-N/P ");
+    }
     safeAdd(row, 0, hint.left(width).leftJustified(width),
             A_DIM | (has_colors() ? COLOR_PAIR(PairFooter) : 0), width);
 }
@@ -1427,12 +1601,16 @@ void TerminalUi::drawStatusBar(int row, int width)
         if (candidate) unread += candidate->unread;
     }
 
-    QString text = QStringLiteral(" [%1] [%2] [%3]")
-                       .arg(clock)
-                       .arg(bufferText)
-                       .arg(stateText);
-    text.prepend(QStringLiteral(" ◉"));
-    if (unread > 0) text += QStringLiteral(" [unread:%1]").arg(unread);
+    QString text;
+    if (width < 46) {
+        text = QStringLiteral(" ◉[%1][%2][%3]")
+                   .arg(clock, bufferText, stateText);
+        if (unread > 0 && width >= 34) text += QStringLiteral("[u:%1]").arg(unread);
+    } else {
+        text = QStringLiteral(" ◉ [%1] [%2] [%3]")
+                   .arg(clock, bufferText, stateText);
+        if (unread > 0) text += QStringLiteral(" [unread:%1]").arg(unread);
+    }
 
     safeAdd(row, 0, text.left(width).leftJustified(width),
             A_REVERSE | A_BOLD | (has_colors() ? COLOR_PAIR(PairHeader) : 0), width);
@@ -1443,10 +1621,14 @@ void TerminalUi::drawInputLine(int row, int width)
     Buffer *buffer = activeBuffer();
     QString promptText;
     if (buffer && buffer->kind == QStringLiteral("terminal")) {
-        promptText = QStringLiteral("[BBS raw · Ctrl-N/P leaves] ❯ ");
+        promptText = width >= 52
+            ? QStringLiteral("[BBS raw · Ctrl-N/P leaves] ❯ ")
+            : QStringLiteral("BBS❯ ");
     } else if (!buffer || buffer->kind == QStringLiteral("global")
         || buffer->kind == QStringLiteral("connection")) {
         promptText = QStringLiteral("❯ ");
+    } else if (width < 40) {
+        promptText = QStringLiteral("[%1]❯ ").arg(buffer->number);
     } else {
         promptText = QStringLiteral("[%1] ❯ ").arg(buffer->name);
     }
@@ -1476,29 +1658,29 @@ void TerminalUi::draw()
     erase();
     const int height = LINES;
     const int width = COLS;
+    const auto layout = responsiveLayout(height, width);
 
-    if (height < 8 || width < 42) {
-        safeAdd(0, 0, QStringLiteral("WaffleHouse-Client-Termux %1: terminal too small").arg(appVersionString()), A_BOLD, width);
-        safeAdd(1, 0,
-                QStringLiteral("Current size %1x%2; need at least 42x8.").arg(width).arg(height),
-                0, width);
+    if (!layout.valid) {
+        safeAdd(0, 0, QStringLiteral("WaffleHouse-Termux %1").arg(appVersionString()), A_BOLD, width);
+        if (height > 1) {
+            safeAdd(1, 0,
+                    QStringLiteral("%1x%2 — enlarge Termux (min 24x6)").arg(width).arg(height),
+                    0, width);
+        }
         refresh();
         return;
     }
 
-    // The 3.0 shell deliberately keeps the bottom-three-row contract from the
-    // proven 2.5.4-r6 TUI so keyboard hints, status, and input never move.
     drawHeader(width);
-    drawConnectionsBar(1, width);
-    // Keep the navigation cheat-sheet outside the main screen chrome.  The
-    // separator is the visual bottom edge of the conversation/dashboard area;
-    // shortcut help sits beneath it as a theme-aware footer.
-    drawBufferPane(activeBuffer(), 2, height - 5, width);
-    safeAdd(height - 4, 0, QString(width, QChar(0x2500)),
-            A_DIM | (has_colors() ? COLOR_PAIR(PairBorder) : 0), width);
-    drawShortcutHint(height - 3, width);
-    drawStatusBar(height - 2, width);
-    drawInputLine(height - 1, width);
+    if (layout.showConnections) drawConnectionsBar(1, width);
+    drawBufferPane(activeBuffer(), layout.contentTop, layout.contentBottom, width);
+    if (layout.showSeparator) {
+        safeAdd(layout.separatorRow, 0, QString(width, QChar(0x2500)),
+                A_DIM | (has_colors() ? COLOR_PAIR(PairBorder) : 0), width);
+    }
+    if (layout.showHint) drawShortcutHint(layout.hintRow, width);
+    drawStatusBar(layout.statusRow, width);
+    drawInputLine(layout.inputRow, width);
     refresh();
 }
 
@@ -1654,7 +1836,8 @@ void TerminalUi::handleSpecialKey(int key)
             case KEY_PPAGE: seq = "\x1b[5~"; break;
             case KEY_NPAGE: seq = "\x1b[6~"; break;
             case KEY_RESIZE:
-                entry->backend->setTerminalSize(80, 24);
+                syncTerminalGeometry();
+                updateTelnetTerminalGeometry();
                 break;
             default: break;
             }
@@ -1699,24 +1882,26 @@ void TerminalUi::handleSpecialKey(int key)
         break;
     case KEY_PPAGE:
         if (Buffer *buffer = activeBuffer()) {
-            buffer->scroll += std::max(1, LINES - 8);
+            const auto layout = responsiveLayout(LINES, COLS);
+            const int page = layout.valid
+                ? std::max(1, layout.contentBottom - layout.contentTop)
+                : 1;
+            buffer->scroll += page;
         }
         break;
     case KEY_NPAGE:
         if (Buffer *buffer = activeBuffer()) {
-            buffer->scroll = std::max(0, buffer->scroll - std::max(1, LINES - 8));
+            const auto layout = responsiveLayout(LINES, COLS);
+            const int page = layout.valid
+                ? std::max(1, layout.contentBottom - layout.contentTop)
+                : 1;
+            buffer->scroll = std::max(0, buffer->scroll - page);
         }
         break;
     case KEY_RESIZE:
+        syncTerminalGeometry();
+        updateTelnetTerminalGeometry();
         clearok(stdscr, TRUE);
-        for (ConnectionEntry *entry : m_connections) {
-            if (entry && entry->backend && entry->connected
-                && entry->settings.protocol == ConnectionSettings::Protocol::Telnet) {
-                // BBS ANSI art is normally authored for an 80-column screen.
-                // Keep NAWS stable even if the enclosing ncurses window is resized.
-                entry->backend->setTerminalSize(80, 24);
-            }
-        }
         break;
     default:
         break;
@@ -2741,7 +2926,7 @@ void TerminalUi::showOptions()
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
 
-        const int boxWidth = std::clamp(COLS - 12, 54, 76);
+        const int boxWidth = adaptiveBoxWidth(COLS, 76, 4);
         const int boxHeight = 15;
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
@@ -3864,7 +4049,7 @@ void TerminalUi::onConnected(ConnectionEntry *entry,
     selectConnection(entry, false);
 
     if (entry->settings.protocol == ConnectionSettings::Protocol::Telnet) {
-        entry->backend->setTerminalSize(80, 24);
+        entry->backend->setTerminalSize(terminalPaneColumns(), terminalPaneRows());
         const QString display = entry->settings.username.trimmed().isEmpty()
             ? entry->settings.server
             : entry->settings.username.trimmed();
@@ -5876,7 +6061,7 @@ QString TerminalUi::prompt(const QString &title,
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
 
-        const int boxWidth = std::clamp(COLS - 8, 36, 72);
+        const int boxWidth = adaptiveBoxWidth(COLS, 72, 4);
         const int boxHeight = 7;
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
@@ -6017,8 +6202,8 @@ void TerminalUi::messageBox(const QString &title, const QStringList &lines)
         for (const QString &line : lines) {
             contentWidth = std::max(contentWidth, static_cast<int>(line.size()) + 4);
         }
-        const int boxWidth = std::clamp(contentWidth, 36, std::max(36, COLS - 6));
-        const int boxHeight = std::clamp(static_cast<int>(lines.size()) + 5, 6, std::max(6, LINES - 4));
+        const int boxWidth = std::min(contentWidth, adaptiveBoxWidth(COLS, std::max(36, contentWidth), 4));
+        const int boxHeight = std::min(static_cast<int>(lines.size()) + 5, adaptiveBoxHeight(LINES, std::max(6, static_cast<int>(lines.size()) + 5), 2));
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
 
@@ -6064,7 +6249,7 @@ void TerminalUi::messageBox(const QString &title, const QStringList &lines)
 void TerminalUi::scrollablePopup(const QString &title, const QStringList &sourceLines)
 {
     QStringList lines;
-    const int desiredWidth = std::clamp(COLS - 8, 44, 88);
+    const int desiredWidth = adaptiveBoxWidth(COLS, 88, 4);
     const int textWidth = std::max(20, desiredWidth - 6);
     for (const QString &line : sourceLines) {
         lines.append(wrapText(line, textWidth));
@@ -6077,8 +6262,8 @@ void TerminalUi::scrollablePopup(const QString &title, const QStringList &source
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
 
-        const int boxWidth = std::clamp(COLS - 6, 44, 92);
-        const int boxHeight = std::clamp(LINES - 4, 10, 28);
+        const int boxWidth = adaptiveBoxWidth(COLS, 92, 4);
+        const int boxHeight = adaptiveBoxHeight(LINES, 28, 2);
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
         const int visible = std::max(1, boxHeight - 4);
@@ -6179,8 +6364,8 @@ QString TerminalUi::browseFile(const QString &initialPath)
         const int count = entries.size() + 1; // synthetic parent entry
         selected = std::clamp(selected, 0, std::max(0, count - 1));
 
-        const int boxWidth = std::clamp(COLS - 8, 52, 96);
-        const int boxHeight = std::clamp(LINES - 6, 12, 28);
+        const int boxWidth = adaptiveBoxWidth(COLS, 96, 4);
+        const int boxHeight = adaptiveBoxHeight(LINES, 28, 2);
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
         const int visible = std::max(4, boxHeight - 5);
@@ -6266,7 +6451,7 @@ bool TerminalUi::promptFileTransfer(ConnectionEntry *entry,
 
     while (true) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-        const int boxWidth = std::clamp(COLS - 8, 58, 92);
+        const int boxWidth = adaptiveBoxWidth(COLS, 92, 4);
         const int boxHeight = 13;
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
@@ -6547,8 +6732,8 @@ bool TerminalUi::promptConnectionSettings(ConnectionSettings &settings,
             cursor = fields.at(active).value.size();
         }
 
-        const int boxWidth = std::clamp(COLS - 6, 58, 86);
-        const int boxHeight = std::clamp(LINES - 3, 14, 22);
+        const int boxWidth = adaptiveBoxWidth(COLS, 86, 4);
+        const int boxHeight = adaptiveBoxHeight(LINES, 22, 2);
         const int startY = std::max(0, (LINES - boxHeight) / 2);
         const int startX = std::max(0, (COLS - boxWidth) / 2);
         const int fieldRows = std::max(4, boxHeight - 5);

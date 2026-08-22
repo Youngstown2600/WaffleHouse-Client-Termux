@@ -36,6 +36,7 @@ private:
         SendLine,
         RawLine,
         RawBytes,
+        WindowSize,
     };
 
     struct Command {
@@ -79,4 +80,5 @@ private:
     std::atomic_int m_columns{80};
     std::atomic_int m_rows{24};
     std::atomic_bool m_serverEcho{false};
+    std::atomic_bool m_nawsEnabled{false};
 };

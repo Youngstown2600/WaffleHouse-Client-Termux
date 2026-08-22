@@ -1,44 +1,39 @@
-WaffleHouse-Client-Termux Build 0.8 — RTP/audio source audit
-============================================================
+WaffleHouse-Client-Termux Build 0.9 — responsive TUI + retained SIP/RTP validation
+==============================================================================
 
-Scope
------
-This audit was performed after Build 0.7 successfully registered to the PBX
-(200 OK) but pjsua_call_make_call() failed while Termux PortAudio/OpenSL ES
-attempted to initialize microphone capture.
+Build baseline
+--------------
+Build 0.9 is based directly on the Build 0.8 source that completed a successful
+real-device SIP registration and test call with working two-way audio on the target
+Android/Termux phone. No SIP/RTP/audio behavior was intentionally removed or changed
+by the responsive-TUI work.
 
-RTP/RTCP source review
-----------------------
-PASS: PJMEDIA owns a dedicated media ioqueue and one RTP worker thread.
-PASS: SIP/RTP creation is decoupled from Android hardware audio by starting
-      Termux on PJSIP's null sound device.
-PASS: Call diagnostics retain local/remote RTP and RTCP addresses.
-PASS: Call diagnostics retain codec/clock rate, TX/RX packets and bytes,
-      loss/discard, jitter, RTT and jitter-buffer delay.
-PASS: Existing optional STUN, ICE and SRTP account plumbing is retained.
-PASS: RFC2833 DTMF path is retained.
+Responsive terminal review
+--------------------------
+PASS: live PTY size is sampled with TIOCGWINSZ on Termux.
+PASS: ncurses resizeterm() is called when Android changes rows/columns.
+PASS: layout reflows for portrait, landscape, split-screen and soft-keyboard resize.
+PASS: status and input rows remain anchored at the bottom.
+PASS: optional connection/footer chrome collapses before conversation space.
+PASS: narrow terminals use compact header/status/input variants.
+PASS: minimum interactive geometry is 24x6 with a safe resize notice below that.
+PASS: side panes are automatically suppressed on narrow screens.
+PASS: popup/dialog widths and heights are bounded by the live terminal size.
+PASS: BBS ANSI model resizes to the visible content pane.
+PASS: Telnet NAWS is updated live after resize when NAWS was negotiated.
 
-Audio I/O hardening
--------------------
-PASS: Hardware audio is deferred until negotiated call media is active.
-PASS: A microphone/full-duplex failure no longer aborts INVITE creation.
-PASS: Failed capture falls back to playback-only mode when Android output can open.
-PASS: If playback also fails, RTP stays alive on the null device rather than
-      terminating the call.
-PASS: /audio-reopen uses a playback-only fallback on Termux.
-PASS: Capture and playback bridge attachment errors are isolated.
-PASS: Installed helper `wafflehouse-audio-preflight` performs a one-second
-      Termux:API microphone permission/capture test.
-
-Important Android limitation
-----------------------------
-The normal Termux application does not itself declare RECORD_AUDIO. Native
-OpenSL ES microphone access therefore depends on the matching Termux:API Android
-add-on/shared Termux UID having microphone permission. `pkg install termux-api`
-installs the command-line client only, not the Android add-on APK.
+SIP/RTP/audio preservation
+--------------------------
+PASS: native PJLIB GUID backend remains enabled; REGISTER transaction IDs remain valid.
+PASS: PJSIP null-device/deferred-hardware design remains intact.
+PASS: full-duplex audio and speaker-only fallback remain intact.
+PASS: RTP/RTCP ioqueue, worker thread and telemetry remain intact.
+PASS: SIP global trace and registration diagnostics remain intact.
+PASS: Android microphone preflight helper remains installed.
 
 Validation
 ----------
-Termux parity/static source gate: 53/53 PASS.
+Termux parity/static source gate: 57/57 PASS.
 All project shell scripts: bash -n PASS.
-Native Android call/RTP/audio runtime still requires testing on the target phone.
+Target-phone Build 0.8 runtime result supplied during testing: SIP REGISTER 200 OK and
+a completed test call with no audio issues. Build 0.9 changes TUI geometry only.

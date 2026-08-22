@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 pass=0; fail=0
 check(){ if eval "$2"; then printf 'PASS: %s\n' "$1"; pass=$((pass+1)); else printf 'FAIL: %s\n' "$1"; fail=$((fail+1)); fi; }
-check "Build 0.8 branding" "grep -q 'Build 0.8' '$ROOT/src/appbranding.h'"
+check "Build 0.9 branding" "grep -q 'Build 0.9' '$ROOT/src/appbranding.h'"
 check "Dedicated Termux entry point" "test -f '$ROOT/src/main_termux.cpp' && test ! -f '$ROOT/src/main.cpp'"
 check "Qt Core/Network only" "grep -q 'COMPONENTS Core Network' '$ROOT/CMakeLists.txt'"
 check "No Qt Widgets" "! grep -Rqs 'Qt6::Widgets' '$ROOT/CMakeLists.txt' '$ROOT/src'"
@@ -55,6 +55,10 @@ check "Capture failure preserves active call" "grep -q 'call remains active' '$R
 check "RTP telemetry retained" "grep -q 'localRtpAddress' '$ROOT/src/sipcore/CallSession.cpp' && grep -q 'getStreamStat' '$ROOT/src/sipcore/CallSession.cpp' && grep -q 'getMedTransportInfo' '$ROOT/src/sipcore/CallSession.cpp'"
 check "Android microphone permission preflight installed" "test -x '$ROOT/scripts/termux-audio-preflight.sh' && grep -q 'wafflehouse-audio-preflight' '$ROOT/CMakeLists.txt' && grep -q 'termux-microphone-record' '$ROOT/scripts/termux-audio-preflight.sh'"
 check "Global SIP registration trace" "grep -q 'recentSipTrace() const' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'recentSip_.push_back(entry)' '$ROOT/src/sipcore/SipEngine.cpp' && grep -q 'recentSipTrace()' '$ROOT/src/sipcontroller.cpp'"
-check "Softphone version updated" "grep -q 'Build 0.8' '$ROOT/include/trunkmonkey/Version.h'"
+check "Softphone version updated" "grep -q 'Build 0.9' '$ROOT/include/trunkmonkey/Version.h'"
+check "Responsive live terminal geometry" "grep -q 'TIOCGWINSZ' '$ROOT/src/terminalui.cpp' && grep -q 'resizeterm' '$ROOT/src/terminalui.cpp' && grep -q 'm_nextGeometryCheckMs' '$ROOT/src/terminalui.h'"
+check "Responsive compact layout" "grep -q 'responsiveLayout' '$ROOT/src/terminalui.cpp' && grep -q 'min 24x6' '$ROOT/src/terminalui.cpp' && grep -q 'width >= 88' '$ROOT/src/terminalui.cpp'"
+check "Dynamic BBS model sizing" "grep -q 'buffer->terminal->resize(cols, rows)' '$ROOT/src/terminalui.cpp' && grep -q 'terminalPaneColumns' '$ROOT/src/terminalui.cpp'"
+check "Live Telnet NAWS resize" "grep -q 'CommandType::WindowSize' '$ROOT/src/telnetbackend.cpp' && grep -q 'm_nawsEnabled' '$ROOT/src/telnetbackend.cpp'"
 printf '\nTermux rebuild parity gate: %d passed, %d failed\n' "$pass" "$fail"
 (( fail == 0 ))

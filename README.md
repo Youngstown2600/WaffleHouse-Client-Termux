@@ -1,4 +1,4 @@
-# WaffleHouse-Client-Termux Build 0.8
+# WaffleHouse-Client-Termux Build 0.9
 
 A dedicated Android/Termux CLI build of WaffleHouse-Client. This is **not** the Linux desktop binary with `--cli` forced on: the Termux target has its own entry point and compiles no Qt Widgets/GUI frontend code.
 
@@ -27,8 +27,8 @@ A dedicated Android/Termux CLI build of WaffleHouse-Client. This is **not** the 
 
 ```sh
 pkg install unzip
-unzip WaffleHouse-Client-Termux-Build-0.8.zip
-cd WaffleHouse-Client-Termux-Build-0.8
+unzip WaffleHouse-Client-Termux-Build-0.9.zip
+cd WaffleHouse-Client-Termux-Build-0.9
 chmod +x build.sh
 ./build.sh --clean
 ```
@@ -58,9 +58,9 @@ termux-setup-storage
 
 WaffleHouse-Client uses Termux's writable `$TMPDIR` (normally `$PREFIX/tmp`) for SIP logs, sockets, and temporary runtime data. It does not assume Android exposes a writable `/tmp`. If Termux temp variables are unavailable, Android falls back to `$HOME/.cache/wafflehouse-client/tmp`.
 
-## Termux SIP audio / RTP notes (Build 0.8)
+## Termux SIP audio / RTP notes (Build 0.8+, retained in Build 0.9)
 
-Build 0.8 deliberately decouples SIP/RTP from Android hardware audio. PJSIP starts
+Build 0.8 introduced the SIP/RTP decoupling from Android hardware audio; Build 0.9 retains it unchanged. PJSIP starts
 with a null sound device, so a missing microphone permission can no longer prevent
 an INVITE from being sent or RTP/RTCP sockets from being created. Once call media
 is negotiated, WaffleHouse attempts full-duplex audio. If microphone capture cannot
@@ -81,3 +81,7 @@ Then use `/audio-devices` and `/audio-reopen` in WaffleHouse. RTP diagnostics re
 available through the Softphone call report/media views and include local/remote
 RTP/RTCP addresses, codec, packet counts, loss, jitter, discard, RTT and jitter
 buffer delay.
+
+## Responsive Termux interface (Build 0.9)
+
+The CLI is now sized from the live Termux PTY rather than an 80x24 assumption. It automatically reflows after phone rotation, soft-keyboard open/close, Android split-screen resizing, and tablet/external-display changes. On short screens optional chrome is removed first; the status/input rows and active conversation remain visible. Telnet/BBS sessions also receive updated NAWS dimensions when the server negotiated NAWS.

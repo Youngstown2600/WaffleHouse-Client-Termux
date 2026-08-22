@@ -86,6 +86,10 @@ private:
     void showSplash();
     void shutdownCurses();
     void tick();
+    void syncTerminalGeometry();
+    void updateTelnetTerminalGeometry();
+    int terminalPaneColumns() const;
+    int terminalPaneRows() const;
     void draw();
     void handleInput();
     void handleCharacter(uint codepoint);
@@ -317,4 +321,7 @@ private:
     qint64 m_nextFilePumpMs = 0;
     qint64 m_lastUserActivityMs = 0;
     qint64 m_nextPresenceCheckMs = 0;
+    qint64 m_nextGeometryCheckMs = 0;
+    int m_lastTerminalRows = 0;
+    int m_lastTerminalCols = 0;
 };

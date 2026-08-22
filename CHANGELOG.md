@@ -1,3 +1,15 @@
+## Build 0.9 — Responsive Termux TUI
+
+- TUI now polls the live Termux terminal geometry and calls `resizeterm()` when Android changes the PTY size.
+- Portrait, landscape, split-screen, keyboard-open, tablet, and external-keyboard layouts reflow without restarting.
+- Connection rail, separator, and keyboard shortcut rail collapse automatically on short displays to preserve conversation space.
+- Header, connection tokens, status bar, and input prompt use compact variants on narrow displays.
+- Minimum usable terminal size is now 24x6; smaller windows show a concise resize notice instead of drawing out of bounds.
+- Side buddy/member panes are suppressed below 88 columns.
+- BBS ANSI models resize with the visible pane, and Telnet NAWS updates are sent live after a resize when the remote negotiated NAWS.
+- Popup/dialog sizing now respects the actual Termux screen rather than assuming desktop-width minimums.
+- All Build 0.8 SIP/RTP/audio fixes are retained unchanged.
+
 ## Build 0.8 — Termux RTP/audio hardening
 
 - Audited the complete SIP media path after Build 0.7 achieved successful REGISTER/200 OK.

@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-APP="WaffleHouse-Client-Termux Build 0.8"
+APP="WaffleHouse-Client-Termux Build 0.9"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PREFIX_EXPECTED="/data/data/com.termux/files/usr"
 BUILD="$ROOT/build-termux"
@@ -82,12 +82,12 @@ install_xdg_provider(){
   install -d -m 0755 "$stage/DEBIAN"
   cat > "$stage/DEBIAN/control" <<CTRL
 Package: wafflehouse-termux-xdg-provider
-Version: 0.8.0
+Version: 0.9.0
 Architecture: all
 Maintainer: WaffleHouse-Client
 Provides: xdg-utils
 Conflicts: xdg-utils
-Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.8
+Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.9
  Contains no files. Termux's existing xdg-open command remains owned by termux-tools.
 CTRL
   chmod 0644 "$stage/DEBIAN/control"
@@ -123,7 +123,7 @@ pjsip_limits_ok(){
   # configuration before trusting a cached managed PJSIP install.
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO[[:space:]]+1([[:space:]]|$)' "$cfg" || return 1
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI[[:space:]]+0([[:space:]]|$)' "$cfg" || return 1
-  # Native Termux has no Java VM. Build 0.8 replaces PJSIP's Android/JNI
+  # Native Termux has no Java VM. Build 0.9 replaces PJSIP's Android/JNI
   # UUID backend with upstream guid_simple.o so SIP branch/Call-ID/tag values
   # are valid in a standalone terminal process.
   [[ -f "$PJINSTALL/.wafflehouse-termux-guid-backend" ]] || return 1

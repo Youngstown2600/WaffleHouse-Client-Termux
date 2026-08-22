@@ -65,6 +65,7 @@ void TelnetBackend::start()
     m_telnetState = TelnetState::Data;
     m_subnegData.clear();
     m_serverEcho = false;
+    m_nawsEnabled = false;
     m_thread = QThread::create([this] { run(); });
     connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
     connect(m_thread, &QThread::finished, this,
@@ -125,8 +126,12 @@ void TelnetBackend::sendRaw(const QString &line, const QString &, const QString 
 
 void TelnetBackend::setTerminalSize(int columns, int rows)
 {
-    m_columns = std::clamp(columns, 20, 65535);
-    m_rows = std::clamp(rows, 5, 65535);
+    const int newColumns = std::clamp(columns, 20, 65535);
+    const int newRows = std::clamp(rows, 5, 65535);
+    const bool changed = newColumns != m_columns.load() || newRows != m_rows.load();
+    m_columns = newColumns;
+    m_rows = newRows;
+    if (changed && m_thread) enqueue({CommandType::WindowSize, {}, {}});
 }
 
 void TelnetBackend::sendTerminalInput(const QByteArray &bytes)
@@ -240,6 +245,7 @@ void TelnetBackend::handleNegotiation(QTcpSocket &socket, quint8 command, quint8
             break;
         case OPT_NAWS:
             sendIac(socket, WILL, option);
+            m_nawsEnabled = true;
             sendWindowSize(socket);
             break;
         case OPT_ECHO:
@@ -252,6 +258,7 @@ void TelnetBackend::handleNegotiation(QTcpSocket &socket, quint8 command, quint8
     }
 
     if (command == DONT) {
+        if (option == OPT_NAWS) m_nawsEnabled = false;
         sendIac(socket, WONT, option);
     }
 }
@@ -454,6 +461,9 @@ void TelnetBackend::run()
                     // the BBS intentionally suppresses application-level echo.
                     break;
                 }
+                case CommandType::WindowSize:
+                    if (m_nawsEnabled.load()) sendWindowSize(*socket);
+                    break;
                 }
             }
 
