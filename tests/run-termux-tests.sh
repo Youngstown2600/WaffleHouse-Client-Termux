@@ -20,6 +20,8 @@ check "Existing xdg-open reuse" "grep -q 'command -v xdg-open' '$ROOT/build-term
 check "Explicit control permissions" "grep -q 'install -d -m 0755.*DEBIAN' '$ROOT/build-termux.sh' && grep -q 'chmod 0644.*control' '$ROOT/build-termux.sh'"
 check "libopus package name" "grep -q 'libopus' '$ROOT/build-termux.sh'"
 check "PJSIP 2.17 managed build" "grep -q 'branch 2.17' '$ROOT/build-termux.sh' && grep -q 'libpjproject' '$ROOT/CMakeLists.txt'"
+check "PJSIP WaffleHouse account/call limits" "grep -q '#define PJSUA_MAX_ACC 32' '$ROOT/build-termux.sh' && grep -q '#define PJSUA_MAX_CALLS 64' '$ROOT/build-termux.sh' && grep -q '#define PJ_IOQUEUE_MAX_HANDLES 256' '$ROOT/build-termux.sh'"
+check "PJSIP cached-limit validation" "grep -q 'pjsip_limits_ok' '$ROOT/build-termux.sh' && grep -q 'stale/default limits; rebuilding automatically' '$ROOT/build-termux.sh'"
 check "PortAudio SIP backend" "grep -q -- '--with-external-pa' '$ROOT/build-termux.sh'"
 check "AIM/OSCAR retained" "test -f '$ROOT/src/oscarbackend.cpp' && grep -q 'oscarbackend.cpp' '$ROOT/CMakeLists.txt'"
 check "IRC retained" "test -f '$ROOT/src/ircbackend.cpp' && grep -q 'ircbackend.cpp' '$ROOT/CMakeLists.txt'"

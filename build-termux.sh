@@ -106,27 +106,49 @@ install_dependencies(){
     mpv ffmpeg termux-api
 }
 
+pjsip_limits_ok(){
+  local cfg="$PJINSTALL/include/pj/config_site.h"
+  [[ -f "$PJINSTALL/lib/pkgconfig/libpjproject.pc" ]] || return 1
+  [[ -f "$cfg" ]] || return 1
+  PKG_CONFIG_PATH="$PJINSTALL/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+    pkg-config --exact-version=2.17 libpjproject >/dev/null 2>&1 || return 1
+  grep -Eq '^[[:space:]]*#define[[:space:]]+PJSUA_MAX_ACC[[:space:]]+32([[:space:]]|$)' "$cfg" || return 1
+  grep -Eq '^[[:space:]]*#define[[:space:]]+PJSUA_MAX_CALLS[[:space:]]+64([[:space:]]|$)' "$cfg" || return 1
+  grep -Eq '^[[:space:]]*#define[[:space:]]+PJ_IOQUEUE_MAX_HANDLES[[:space:]]+256([[:space:]]|$)' "$cfg" || return 1
+}
+
 build_pjsip(){
   local force="${1:-0}"
+  if [[ "$force" != 1 ]] && pjsip_limits_ok; then
+    say "Managed PJSIP 2.17 already installed with WaffleHouse SIP limits"
+    return
+  fi
   if [[ "$force" != 1 && -f "$PJINSTALL/lib/pkgconfig/libpjproject.pc" ]]; then
-    if PKG_CONFIG_PATH="$PJINSTALL/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
-       pkg-config --exact-version=2.17 libpjproject >/dev/null 2>&1; then
-      say "Managed PJSIP 2.17 already installed"
-      return
-    fi
+    say "Existing PJSIP 2.17 has stale/default limits; rebuilding automatically"
   fi
 
   say "Building PJSIP 2.17 for native Termux"
   mkdir -p "$ROOT/.termux"
   rm -rf "$PJROOT"
+  # This prefix is owned by the WaffleHouse builder. Remove stale headers and
+  # archives so a previous default-limit PJSIP install cannot leak into the
+  # rebuilt dependency.
+  rm -rf "$PJINSTALL"
   git clone --depth 1 --branch 2.17 https://github.com/pjsip/pjproject.git "$PJROOT"
   mkdir -p "$PJROOT/pjlib/include/pj"
   cat > "$PJROOT/pjlib/include/pj/config_site.h" <<'CFG'
 #pragma once
+/* Termux/Android platform settings. */
 #define PJ_CONFIG_ANDROID 1
 #define PJ_HAS_IPV6 1
 #define PJMEDIA_HAS_VIDEO 0
 #define PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO 1
+
+/* WaffleHouse-Client SIP capacity requirements. Keep these in the
+ * PJSIP build itself so the libraries and application headers agree. */
+#define PJSUA_MAX_ACC 32
+#define PJSUA_MAX_CALLS 64
+#define PJ_IOQUEUE_MAX_HANDLES 256
 CFG
 
   cd "$PJROOT"
@@ -143,6 +165,16 @@ CFG
   make dep
   make -j"$JOBS"
   make install
+
+  # PJSIP installs public headers used by WaffleHouse. Refuse to continue if
+  # the installed headers do not expose the exact limits used to build the
+  # libraries; otherwise the C++ static assertions fail later with defaults.
+  if ! pjsip_limits_ok; then
+    echo "Installed PJSIP 2.17 did not preserve WaffleHouse SIP limits." >&2
+    echo "Expected PJSUA_MAX_ACC=32, PJSUA_MAX_CALLS=64, PJ_IOQUEUE_MAX_HANDLES=256." >&2
+    exit 1
+  fi
+  say "Verified PJSIP limits: accounts=32 calls=64 ioqueue=256"
 }
 
 run_tests(){
