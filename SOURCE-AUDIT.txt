@@ -1,0 +1,2 @@
+WaffleHouse-Client 3.2-Termux source audit
+See SOURCE-AUDIT-3.2-Termux.txt.

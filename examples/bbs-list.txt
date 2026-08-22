@@ -1,0 +1,3 @@
+# Simple formats are also accepted:
+waffle.c4bmore.com:23
+Example Pipe BBS|bbs.example.net|23|ANSI

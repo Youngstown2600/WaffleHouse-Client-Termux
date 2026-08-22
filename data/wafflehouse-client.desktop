@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=WaffleHouse-Client
+Comment=Secure AIM/IRC/Telnet/SIP communications plus local media, internet radio, streams, playlists, and video
+Exec=wafflehouse-client
+Icon=wafflehouse-client
+Terminal=false
+Categories=Network;Chat;InstantMessaging;AudioVideo;Audio;Video;

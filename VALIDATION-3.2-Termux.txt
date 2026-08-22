@@ -1,0 +1,23 @@
+WaffleHouse-Client 3.2-Termux — validation
+2026-08-22
+
+Validated in the packaging environment:
+- Product/version strings resolve to WaffleHouse-Client 3.2-Termux.
+- Former media-edition sub-brand is absent from retained text/source surfaces.
+- CMake target is CLI-only and links Qt Core/Gui/Network, ncursesw, libsodium, PJSIP, and Threads; Qt Widgets is not linked.
+- Termux builder enables the official X11 repository for Qt 6 packages but does not require an X server at runtime.
+- Builder installs Clang/CMake/pkg-config, Qt 6, libsodium, ncurses, OpenSSL, libuuid, PortAudio, Opus, mpv, FFmpeg, and termux-api.
+- Managed PJSIP 2.17 path is configured with external PortAudio and Termux's Android OpenSL ES backend.
+- PJSIP limits remain 32 accounts / 64 calls / 256 IO queue handles.
+- CLI compact banner and dialog sizing paths support narrow phone terminals down to 30 columns x 8 rows.
+- /menu compact command map is present.
+- Incoming transfer default prefers ~/storage/downloads when Termux shared storage is enabled.
+- Notification playback has a termux-media-player path.
+- SHOUTcast search has a termux-open-url handoff path.
+- Legacy --cli invocation remains accepted; --gui is recognized and reports that the Termux artifact is CLI-only.
+- 24/24 Termux regression suite passed.
+- Shell syntax validation passed.
+- Builder dry-run passed.
+
+Native-device limitation:
+This packaging environment is not Android/Termux and does not contain the target Qt/PJSIP/PortAudio stack. A real ARM64/Android compile, SIP registration/call, microphone capture, speaker playback, mobile-network traversal, and mpv playback must be exercised on the target Termux device. No native Android runtime result is claimed here.

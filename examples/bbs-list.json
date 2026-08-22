@@ -1,0 +1,4 @@
+[
+  {"name":"Waffle BBS","host":"waffle.c4bmore.com","port":23,"terminal":"ANSI"},
+  {"name":"Example BBS","host":"bbs.example.net","port":23,"terminal":"ANSI"}
+]
