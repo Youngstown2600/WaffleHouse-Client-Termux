@@ -1,11 +1,11 @@
 #pragma once
 
 #include <QByteArray>
-#include <QString>
-#include <QStringList>
 #ifndef WAFFLEHOUSE_TERMUX
 #include <QColor>
 #endif
+#include <QString>
+#include <QStringList>
 #include <QVector>
 
 class AnsiTerminalModel {

@@ -33,17 +33,18 @@ QList<StoredProfile> readProfiles(QSettings &settings)
 {
     static const QStringList keys = {
         QStringLiteral("id"), QStringLiteral("protocol"), QStringLiteral("server"),
-        QStringLiteral("port"), QStringLiteral("username"), QStringLiteral("redirectHost"),
-        QStringLiteral("redirectPort"), QStringLiteral("realName"), QStringLiteral("tls"),
+        QStringLiteral("port"), QStringLiteral("username"), QStringLiteral("networkProfile"),
+        QStringLiteral("arsHost"), QStringLiteral("arsPort"), QStringLiteral("redirectHost"),
+        QStringLiteral("redirectPort"), QStringLiteral("oscarDebugMode"), QStringLiteral("realName"), QStringLiteral("tls"),
         QStringLiteral("ircBuddies"), QStringLiteral("sipContacts"),
-        QStringLiteral("telnetTerminalType"), QStringLiteral("sipProfileName"),
+        QStringLiteral("telnetTerminalType"), QStringLiteral("telnetColumns"), QStringLiteral("telnetRows"), QStringLiteral("telnetAutoFit"), QStringLiteral("sipProfileName"),
         QStringLiteral("sipDomain"), QStringLiteral("sipRegistrar"),
         QStringLiteral("sipAuthUsername"), QStringLiteral("sipDisplayName"),
         QStringLiteral("sipOutboundProxy"), QStringLiteral("sipCallerIdDomain"),
         QStringLiteral("sipDialPrefix"), QStringLiteral("sipStunServer"),
         QStringLiteral("sipTransport"), QStringLiteral("sipIdentityMode"),
         QStringLiteral("sipLocalPort"), QStringLiteral("sipRegistrationExpires"),
-        QStringLiteral("sipUseIce"), QStringLiteral("sipEnableSrtp"),
+        QStringLiteral("sipUseIce"), QStringLiteral("sipEnableSrtp"), QStringLiteral("sipCompatibility"),
         QStringLiteral("debug"), QStringLiteral("secretRequired"),
         QStringLiteral("savePassword"), QStringLiteral("password")
     };
@@ -115,7 +116,7 @@ int main(int argc, char *argv[])
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        QStringLiteral("WaffleHouse-Client %1 for Termux — AIM/OSCAR, IRC, Telnet/BBS, SIP/VoIP, secure rooms, file transfer and media")
+        QStringLiteral("WaffleHouse-Termux %1 — WaffleHouse-Client 5.1 core, AIM/OSCAR, IRC, Telnet/BBS, SIP/VoIP, secure rooms, file transfer and media")
             .arg(appVersionString()));
     parser.addHelpOption();
     parser.addVersionOption();
@@ -124,7 +125,7 @@ int main(int argc, char *argv[])
     parser.process(app);
 
     if (parser.isSet(QStringLiteral("gui"))) {
-        std::fprintf(stderr, "WaffleHouse-Client-Termux Build 0.9 is a native terminal build; --gui is not available.\n");
+        std::fprintf(stderr, "WaffleHouse-Termux 1.0 is a native terminal build; --gui is not available.\n");
         return 2;
     }
 
@@ -133,7 +134,7 @@ int main(int argc, char *argv[])
     TerminalUi ui;
     QObject::connect(&ui, &TerminalUi::finished, &app, &QCoreApplication::quit);
     if (!ui.start()) {
-        std::fprintf(stderr, "WaffleHouse-Client %s: terminal frontend could not start.\nDetected: %s\n",
+        std::fprintf(stderr, "WaffleHouse-Termux %s: terminal frontend could not start.\nDetected: %s\n",
                      appVersionString().toUtf8().constData(), runtime.summary().toUtf8().constData());
         return 1;
     }

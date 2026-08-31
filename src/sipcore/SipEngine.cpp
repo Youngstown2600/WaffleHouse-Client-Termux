@@ -2,6 +2,7 @@
 #include "trunkmonkey/CallSession.h"
 #include "trunkmonkey/Logger.h"
 #include "trunkmonkey/RuntimePaths.h"
+#include "trunkmonkey/RemoteSipAudio.h"
 #include "trunkmonkey/SipAccount.h"
 #include "trunkmonkey/SipWireMonitor.h"
 #include "trunkmonkey/Version.h"
@@ -101,6 +102,28 @@ std::string quotedDisplayName(std::string value)
 std::string nameAddr(const std::string& value)
 {
     return value.find('<')!=std::string::npos ? value : "<"+value+">";
+}
+
+bool envEnabled(const char* name)
+{
+    const char* raw=std::getenv(name);
+    if(raw==nullptr || *raw=='\0') return false;
+    std::string value=raw;
+    std::transform(value.begin(),value.end(),value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+    return value!="0" && value!="false" && value!="no" && value!="off";
+}
+
+std::string envText(const char* name)
+{
+    const char* raw=std::getenv(name);
+    return raw==nullptr ? std::string{} : std::string(raw);
+}
+
+bool shellSessionSipIsolation()
+{
+    return envEnabled("WAFFLEHOUSE_SIP_EPHEMERAL_PORTS") ||
+           envEnabled("WAFFLEHOUSE_SHELL_SESSION") ||
+           !envText("SSH_CONNECTION").empty() || !envText("SSH_TTY").empty();
 }
 
 struct AudioDeviceKey {
@@ -314,6 +337,7 @@ void SipEngine::start(const SipProfile& p,unsigned maxCalls)
 namespace {
 std::string sipTransportKey(const SipProfile& p)
 {
+    if(shellSessionSipIsolation()) return toString(p.transport)+":ssh-session-auto";
     return toString(p.transport)+":"+std::to_string(p.localSipPort);
 }
 }
@@ -325,12 +349,17 @@ pj::TransportId SipEngine::ensureTransport(const SipProfile& p)
     const auto existing=transports_.find(key);
     if(existing!=transports_.end()) return existing->second;
     pj::TransportConfig tc;
-    tc.port=p.localSipPort;
+    tc.port=shellSessionSipIsolation()?0U:p.localSipPort;
     pjsip_transport_type_e type=PJSIP_TRANSPORT_UDP;
     if(p.transport==Transport::Tcp) type=PJSIP_TRANSPORT_TCP;
     else if(p.transport==Transport::Tls) type=PJSIP_TRANSPORT_TLS;
     const pj::TransportId id=endpoint_->transportCreate(type,tc);
     transports_[key]=id;
+    try {
+        const auto info=endpoint_->transportGetInfo(id);
+        logger_.info("SIP signaling transport created: "+info.typeName+" local="+info.localAddress+
+                     (shellSessionSipIsolation()?" [SSH session-isolated]":""));
+    } catch (...) {}
     return id;
 }
 
@@ -361,15 +390,39 @@ void SipEngine::createAccount(const std::string& accountId,const SipProfile& inp
     state.account=std::make_unique<SipAccount>(*this,logger_,accountId);
 
     pj::AccountConfig ac;
-    ac.idUri=quotedDisplayName(p.displayName)+" <sip:"+p.username+"@"+p.sipDomain+">";
+    // The account AOR/From identity may legitimately differ from the registrar
+    // domain (common with PBXs, trunks and older Asterisk chan_sip peers).
+    const auto identityDomain=p.callerIdDomain.empty()?p.sipDomain:p.callerIdDomain;
+    ac.idUri=quotedDisplayName(p.displayName)+" <sip:"+p.username+"@"+identityDomain+">";
     ac.regConfig.registrarUri=p.registrar;
     ac.regConfig.timeoutSec=p.registrationExpires;
     ac.regConfig.registerOnAdd=registerNow;
     ac.sipConfig.transportId=transportId;
     const auto authUser=p.authUsername.empty()?p.username:p.authUsername;
-    ac.sipConfig.authCreds.emplace_back("digest","*",authUser,0,p.password);
+    // Wildcard realm follows the registrar's Digest challenge and works with
+    // Asterisk chan_sip realms as well as modern RFC 3261 registrars.
+    ac.sipConfig.authCreds.emplace_back("digest","*",authUser,PJSIP_CRED_DATA_PLAIN_PASSWD,p.password);
     if(!p.outboundProxy.empty()) ac.sipConfig.proxies.push_back(p.outboundProxy);
     ac.natConfig.iceEnabled=p.useIce;
+
+    // PJSIP is WaffleHouse's client-side SIP stack; the remote PBX does not
+    // need to use PJSIP. This optional mode trims newer registration behavior
+    // that legacy Asterisk chan_sip installations may not understand.
+    if(p.compatibility==SipCompatibility::AsteriskChanSip){
+        ac.regConfig.proxyUse=p.outboundProxy.empty()?0U:PJSUA_REG_USE_ACC_PROXY;
+        ac.natConfig.sipOutboundUse=false;
+        ac.natConfig.contactRewriteUse=1;
+        ac.natConfig.contactRewriteMethod=PJSUA_CONTACT_REWRITE_UNREGISTER;
+        ac.natConfig.viaRewriteUse=1;
+        ac.natConfig.contactUseSrcPort=1;
+    }
+    if(shellSessionSipIsolation()){
+        // Every shell-login WaffleHouse process owns independent RTP/RTCP
+        // sockets. Port 0 lets the kernel allocate collision-free ephemeral
+        // ports instead of every user competing for PJSUA's normal base port.
+        ac.mediaConfig.transportConfig.port=0;
+        ac.mediaConfig.transportConfig.portRange=0;
+    }
     if(p.enableSrtp) ac.mediaConfig.srtpUse=PJMEDIA_SRTP_OPTIONAL;
 
     SipAccount* accountPtr=state.account.get();
@@ -392,7 +445,7 @@ void SipEngine::createAccount(const std::string& accountId,const SipProfile& inp
     }
     refreshStunServers();
     logger_.info("SIP account added: "+accountId+" "+p.username+"@"+p.sipDomain+
-                 " transport="+toString(p.transport)+(registerNow?" registering":" offline"));
+                 " transport="+toString(p.transport)+" compatibility="+toString(p.compatibility)+(registerNow?" registering":" offline"));
     updateAggregateRegistration();
 }
 
@@ -440,25 +493,23 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
         endpoint_=std::make_unique<pj::Endpoint>();
         PjBootstrapLogSilencer bootstrapLogSilencer;
         endpoint_->libCreate();
-        // PJSIP's normal Android build generates transaction IDs via Java/JNI.
-        // Native Termux has no JVM, so verify the managed PJSIP dependency uses
-        // our non-JNI GUID backend before any REGISTER/INVITE can be created.
+#ifdef WAFFLEHOUSE_TERMUX
+        // Native Termux has no JVM. The managed PJSIP dependency is patched to
+        // use guid_simple; verify it before REGISTER/INVITE generation.
         verifyPjGuidBackend();
+#endif
 
         pj::EpConfig ec;
         ec.uaConfig.maxCalls=maxCalls;
         ec.uaConfig.userAgent=WAFFLEHOUSE_SOFTPHONE_USER_AGENT;
         ec.uaConfig.threadCnt=2;
-#ifdef __ANDROID__
-        // Native Termux is not a normal Android APK. Keep RTP/RTCP processing
-        // independent of the hardware sound device so signaling/media sockets
-        // remain healthy even when Android microphone permission is unavailable.
+#ifdef WAFFLEHOUSE_TERMUX
+        // Keep RTP/RTCP alive independently of Android audio permissions and
+        // hardware startup. Real devices are attached only after media exists.
         ec.medConfig.hasIoqueue=true;
         ec.medConfig.threadCnt=1;
         ec.medConfig.channelCount=1;
         ec.medConfig.audioFramePtime=20;
-        // Re-opening the old Termux/OpenSL device on every idle transition is
-        // both expensive and failure-prone. WaffleHouse explicitly manages it.
         ec.medConfig.sndAutoCloseTime=-1;
 #endif
         ec.logConfig.level=5;
@@ -484,6 +535,22 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
         stopping_=false;
         started_=true;
 
+        const std::string remotePlaybackSocket=envText("WAFFLEHOUSE_REMOTE_SIP_PLAY_SOCKET");
+        const std::string remoteCaptureSocket=envText("WAFFLEHOUSE_REMOTE_SIP_CAPTURE_SOCKET");
+        const bool remoteAudioRequested=!remotePlaybackSocket.empty() || !remoteCaptureSocket.empty();
+        const bool remoteAudioReady=!remotePlaybackSocket.empty() && !remoteCaptureSocket.empty();
+        if(remoteAudioRequested && !remoteAudioReady)
+            throw std::runtime_error("SSH SIP audio bridge is incomplete: both playback and capture sockets are required");
+
+        if(remoteAudioReady){
+            auto& audio=endpoint_->audDevManager();
+            // A null device keeps PJSIP's conference clock alive without
+            // opening host audio hardware on a headless shell server.
+            audio.setNullDev();
+            remoteAudioBridge_=std::make_unique<RemoteSipAudioBridge>(logger_);
+            remoteAudioBridge_->start(remotePlaybackSocket,remoteCaptureSocket);
+            logger_.info("PJSIP audio routed through WaffleHouse SSH companion; server sound hardware disabled for this session");
+        } else {
         // Enumerate audio devices after PJSIP has started. Capture and playback
         // are intentionally selected independently: FreeBSD laptops commonly
         // expose an internal duplex codec plus a dedicated headset-mic capture
@@ -582,13 +649,10 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
 #endif
             if(captureId>=0) audio.setCaptureDev(captureId);
             if(playbackId>=0) audio.setPlaybackDev(playbackId);
-#ifdef __ANDROID__
-            // Critical Termux rule: never let pjsua_call_make_call()/answer()
-            // open OpenSL ES capture as a side effect of creating media. The
-            // Termux host UID may not have RECORD_AUDIO yet, and PortAudio
-            // otherwise aborts the INVITE with paUnanticipatedHostError. A null
-            // device preserves the conference/media clock and RTP stack while
-            // real hardware is activated only after negotiated media is active.
+#ifdef WAFFLEHOUSE_TERMUX
+            // Do not let call creation implicitly open a microphone before the
+            // Termux host has Android RECORD_AUDIO permission. The conference
+            // clock/RTP remain active on the null device until attachAudio().
             audio.setNullDev();
             logger_.info("[AUDIO] Termux deferred-hardware mode armed (null sound device); SIP/RTP is decoupled from microphone startup");
 #endif
@@ -605,6 +669,7 @@ void SipEngine::start(const std::vector<std::pair<std::string,SipProfile>>& init
         } catch(const pj::Error& e){
             logger_.warn("Unable to enumerate/select PJSIP audio devices: "+e.info());
         }
+        } // local-audio mode
 
 
         for(const auto& item:initialAccounts) createAccount(item.first,item.second,false);
@@ -845,6 +910,13 @@ void SipEngine::stop()
     }
     drainingAccounts.clear();
 
+    // Custom AudioMediaPort objects must unregister while the PJSUA2 endpoint
+    // and conference bridge still exist.
+    if(remoteAudioBridge_){
+        try{ remoteAudioBridge_->stop(); }catch(...){}
+        remoteAudioBridge_.reset();
+    }
+
     if(endpoint_){
         try{ endpoint_->libDestroy(); }
         catch(const pj::Error& e){ logger_.warn("PJSUA2 endpoint shutdown: "+e.info()); }
@@ -869,6 +941,25 @@ bool SipEngine::started()const{return started_;}
 bool SipEngine::registered()const{return registered_;}
 std::string SipEngine::registrationText()const{std::lock_guard<std::mutex> lock(regMutex_);return registrationText_;}
 const SipProfile& SipEngine::profile()const{return profile_;}
+
+pj::AudioMedia& SipEngine::playbackMedia()
+{
+    if(remoteAudioBridge_ && remoteAudioBridge_->active()) return remoteAudioBridge_->playbackSink();
+    if(!endpoint_) throw std::runtime_error("SIP endpoint is not initialized");
+    return endpoint_->audDevManager().getPlaybackDevMedia();
+}
+
+pj::AudioMedia& SipEngine::captureMedia()
+{
+    if(remoteAudioBridge_ && remoteAudioBridge_->active()) return remoteAudioBridge_->captureSource();
+    if(!endpoint_) throw std::runtime_error("SIP endpoint is not initialized");
+    return endpoint_->audDevManager().getCaptureDevMedia();
+}
+
+bool SipEngine::remoteAudioActive() const noexcept
+{
+    return remoteAudioBridge_ && remoteAudioBridge_->active();
+}
 
 void SipEngine::setDialPrefix(const std::string& accountId,const std::string& prefix)
 {
@@ -1007,7 +1098,7 @@ int SipEngine::makeCall(const std::string& accountId,const std::string& destinat
         profile=it->second.profile;
         activePrefix=it->second.dialPrefix;
     }
-    auto call=std::make_shared<CallSession>(*account,logger_,CallDirection::Outgoing,purpose);
+    auto call=std::make_shared<CallSession>(*account,logger_,*this,CallDirection::Outgoing,purpose);
     call->setAccountIdentity(accountId,profile.name);
     call->setRequestedCallerId(callerId);
     call->setUpdateCallback([this](int id){ onCallUpdated(id); });
@@ -1150,6 +1241,27 @@ void SipEngine::sendDtmf(int id,const std::string& digits,unsigned durationMs)
     if(digits.empty()) throw std::runtime_error("DTMF digits required");
     call->sendDtmfDigits(digits,durationMs);
 }
+void SipEngine::blindTransfer(int id,const std::string& destination)
+{
+    auto call=requirePhoneCall(id);
+    const auto snap=call->snapshot();
+    const std::string target=normalizeDestination(snap.accountId,destination,true);
+    call->blindTransfer(target);
+    logger_.info("Blind transfer requested: call="+std::to_string(id)+" target="+target);
+}
+void SipEngine::attendedTransfer(int id,int consultationCallId)
+{
+    if(id==consultationCallId) throw std::runtime_error("A call cannot replace itself");
+    auto original=requirePhoneCall(id);
+    auto consultation=requirePhoneCall(consultationCallId);
+    const auto a=original->snapshot();
+    const auto b=consultation->snapshot();
+    if(a.accountId!=b.accountId)
+        throw std::runtime_error("Attended transfer currently requires both calls to use the same SIP account");
+    original->attendedTransfer(*consultation);
+    logger_.info("Attended transfer requested: call="+std::to_string(id)+" consultation="+std::to_string(consultationCallId));
+}
+
 
 void SipEngine::setMicrophoneMuted(int id,bool muted)
 {
@@ -1254,15 +1366,14 @@ void SipEngine::reopenAudioDevices()
 
         audio.setCaptureDev(capture);
         audio.setPlaybackDev(playback);
-        // Mode 0 is normal full-duplex immediate-open: neither SPEAKER_ONLY nor
-        // NO_IMMEDIATE_OPEN is set.
-#ifdef __ANDROID__
+        // Mode 0 is normal full-duplex immediate-open. On Termux, microphone
+        // permission/device failure falls back to playback-only without dropping
+        // the signaling/RTP session.
+#ifdef WAFFLEHOUSE_TERMUX
         bool speakerOnly=false;
         try {
             audio.setSndDevMode(0);
         } catch (const pj::Error& fullDuplexError) {
-            // Android microphone permission/device failures must not destroy the
-            // SIP/RTP session. Preserve receive audio when possible.
             logger_.warn("[AUDIO] Termux full-duplex reopen failed; trying playback-only: "+fullDuplexError.info());
             audio.setNoDev();
             audio.setPlaybackDev(playback);
@@ -1557,7 +1668,7 @@ std::string SipEngine::mediaDump(int id)const
 std::string SipEngine::sipLadder(int id)const
 {
     const auto trace=sipTrace(id);std::ostringstream out;
-    out<<"WaffleHouse-Client SIP ladder — call "<<id<<"\n"
+    out<<"WaffleHouse-Termux SIP ladder — call "<<id<<"\n"
          <<"LOCAL                                      REMOTE\n"
          <<"  |                                           |\n";
     for(const auto&e:trace){
@@ -1573,7 +1684,7 @@ std::string SipEngine::callReport(int id)const
 {
     const auto c=callSnapshot(id);std::ostringstream o;
     const double rxDen=static_cast<double>(c.rtpRxPackets+c.rtpRxLoss);const double lossPct=rxDen>0?100.0*c.rtpRxLoss/rxDen:0.0;
-    o<<"WaffleHouse-Client 1.0.0 — SIP Inspection, Protocol Handling, Enumeration & Recon\nCALL DIAGNOSTIC REPORT\n\n"
+    o<<"WaffleHouse-Termux 1.0 — SIP Call Quality & Diagnostics\nCALL DIAGNOSTIC REPORT\n\n"
      <<"Call ID:        "<<id<<"\nSIP Call-ID:    "<<c.callIdString<<"\nRemote URI:     "<<c.remoteUri<<"\nCaller ID:      "<<c.callerId<<"\nState:          "<<c.state<<"\nLast SIP:       "<<c.lastStatusCode<<" "<<c.lastReason<<"\n"
      <<"Codec:          "<<c.codecName<<(c.codecClockRate?"/"+std::to_string(c.codecClockRate):std::string{})<<"\n"
      <<"Microphone:     "<<(c.microphoneMuted?"MUTED":"live")<<"\n"
@@ -1584,7 +1695,8 @@ std::string SipEngine::callReport(int id)const
      <<"RX loss:        "<<std::fixed<<std::setprecision(2)<<lossPct<<"%\n"
      <<"Jitter TX/RX:   "<<std::setprecision(1)<<c.txJitterMs<<" / "<<c.rxJitterMs<<" ms\n"
      <<"RTT:            "<<c.rttMs<<" ms\nJitter buffer:  "<<c.jitterBufferDelayMs<<" ms\n"
-     <<"Est. R-factor:  "<<c.estimatedRFactor<<"\nEst. MOS:       "<<c.estimatedMos<<" (engineering estimate; not PESQ/POLQA)\n\n";
+     <<"Est. R-factor:  "<<c.estimatedRFactor<<"\nEst. MOS:       "<<c.estimatedMos<<" (engineering estimate; not PESQ/POLQA)\n"
+     <<"Quality:        "<<(c.estimatedMos>=4.0?"EXCELLENT":c.estimatedMos>=3.6?"GOOD":c.estimatedMos>=3.1?"FAIR":c.estimatedMos>0?"POOR":"UNKNOWN")<<"\n\n";
     if(c.purpose==CallPurpose::Phone){try{o<<sipLadder(id)<<"\n";}catch(...){} }
     return o.str();
 }
@@ -1596,12 +1708,6 @@ void SipEngine::exportCallReport(int id,const std::string& path)const
 #ifndef _WIN32
     (void)::chmod(path.c_str(),S_IRUSR|S_IWUSR);
 #endif
-}
-
-std::vector<SipTraceEntry> SipEngine::recentSipTrace() const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return recentSip_;
 }
 
 std::vector<SipTraceEntry> SipEngine::sipTrace(int id)const
@@ -1639,8 +1745,6 @@ void SipEngine::onSipMessage(SipTraceEntry entry)
     std::shared_ptr<CallSession> call;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        recentSip_.push_back(entry);
-        if(recentSip_.size()>500) recentSip_.erase(recentSip_.begin(), recentSip_.begin()+100);
         const auto mapped=callIdIndex_.find(entry.callIdString);
         if(mapped!=callIdIndex_.end()){
             const auto it=calls_.find(mapped->second);
@@ -1682,7 +1786,7 @@ void SipEngine::onIncomingCall(const std::string& accountId,int id)
         account=it->second.account.get();
         profile=it->second.profile;
     }
-    auto call=std::make_shared<CallSession>(*account,logger_,CallDirection::Incoming,CallPurpose::Phone,id);
+    auto call=std::make_shared<CallSession>(*account,logger_,*this,CallDirection::Incoming,CallPurpose::Phone,id);
     call->setAccountIdentity(accountId,profile.name);
     call->setUpdateCallback([this](int callId){ onCallUpdated(callId); });
     addCall(call);

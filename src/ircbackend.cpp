@@ -92,6 +92,17 @@ void IrcBackend::requestClientVersion(const QString &target)
     sendRaw(QStringLiteral("PRIVMSG %1 :\x01VERSION\x01").arg(clean));
 }
 
+void IrcBackend::requestWhois(const QString &target)
+{
+    const QString clean = target.trimmed();
+    if (!clean.isEmpty()) sendRaw(QStringLiteral("WHOIS %1").arg(clean));
+}
+
+void IrcBackend::refreshServerCapabilities()
+{
+    sendRaw(QStringLiteral("CAP LS 302"));
+}
+
 void IrcBackend::joinRoom(const QString &room, bool)
 {
     enqueue({CommandType::Join, room, {}});
@@ -638,6 +649,21 @@ void IrcBackend::replaceMembers(const QString &room, const QStringList &names)
     emit membersChanged(room, QStringLiteral("replace"), names);
 }
 
+void IrcBackend::emitServerCapabilities()
+{
+    QStringList caps = m_ircv3Capabilities.values();
+    caps.sort(Qt::CaseInsensitive);
+
+    QStringList isupport;
+    QStringList keys = m_isupportTokens.keys();
+    keys.sort(Qt::CaseInsensitive);
+    for (const QString &key : keys) {
+        const QString value = m_isupportTokens.value(key);
+        isupport.append(value.isEmpty() ? key : QStringLiteral("%1=%2").arg(key, value));
+    }
+    emit serverCapabilitiesChanged(caps, isupport);
+}
+
 void IrcBackend::processLine(const QString &line)
 {
     if (m_settings.debug) {
@@ -647,6 +673,59 @@ void IrcBackend::processLine(const QString &line)
 
     const ParsedLine parsed = parseLine(line);
     const QString nick = nickFromPrefix(parsed.prefix);
+
+    if (parsed.command == QStringLiteral("CAP") && parsed.params.size() >= 2) {
+        const QString subcommand = parsed.params.at(1).toUpper();
+        if (subcommand == QStringLiteral("LS") && !parsed.params.isEmpty()) {
+            const QString capabilityText = parsed.params.back();
+            for (const QString &raw : capabilityText.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+                const QString capability = raw.trimmed();
+                if (!capability.isEmpty()) m_ircv3Capabilities.insert(capability);
+            }
+            emitServerCapabilities();
+        } else if ((subcommand == QStringLiteral("NEW") || subcommand == QStringLiteral("DEL"))
+                   && !parsed.params.isEmpty()) {
+            const bool add = subcommand == QStringLiteral("NEW");
+            for (const QString &raw : parsed.params.back().split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+                const QString capability = raw.trimmed();
+                const QString capabilityName = capability.section(QLatin1Char('='), 0, 0);
+                if (capabilityName.isEmpty()) continue;
+                if (add) {
+                    for (auto it = m_ircv3Capabilities.begin(); it != m_ircv3Capabilities.end(); ) {
+                        if (it->section(QLatin1Char('='), 0, 0) == capabilityName) it = m_ircv3Capabilities.erase(it);
+                        else ++it;
+                    }
+                    m_ircv3Capabilities.insert(capability);
+                } else {
+                    for (auto it = m_ircv3Capabilities.begin(); it != m_ircv3Capabilities.end(); ) {
+                        if (it->section(QLatin1Char('='), 0, 0) == capabilityName) it = m_ircv3Capabilities.erase(it);
+                        else ++it;
+                    }
+                }
+            }
+            emitServerCapabilities();
+        }
+        return;
+    }
+
+    if (parsed.command == QStringLiteral("005") && parsed.params.size() >= 2) {
+        // RPL_ISUPPORT: first parameter is our nick; the final trailing parameter
+        // is descriptive prose. Everything in between is a server feature token.
+        for (int i = 1; i < parsed.params.size(); ++i) {
+            const QString token = parsed.params.at(i).trimmed();
+            if (token.isEmpty() || token.contains(QLatin1Char(' '))) continue;
+            if (token.startsWith(QLatin1Char('-'))) {
+                m_isupportTokens.remove(token.mid(1).section(QLatin1Char('='), 0, 0).toUpper());
+                continue;
+            }
+            const QString key = token.section(QLatin1Char('='), 0, 0).toUpper();
+            const QString value = token.contains(QLatin1Char('='))
+                ? token.section(QLatin1Char('='), 1) : QString();
+            if (!key.isEmpty()) m_isupportTokens.insert(key, value);
+        }
+        emitServerCapabilities();
+        return;
+    }
 
     if (parsed.command == QStringLiteral("PRIVMSG") && parsed.params.size() >= 2) {
         const QString target = parsed.params[0];
@@ -872,6 +951,53 @@ void IrcBackend::processLine(const QString &line)
         return;
     }
 
+    static const QSet<QString> whoisReplies = {
+        QStringLiteral("301"), QStringLiteral("311"), QStringLiteral("312"),
+        QStringLiteral("313"), QStringLiteral("317"), QStringLiteral("318"),
+        QStringLiteral("319"), QStringLiteral("330"), QStringLiteral("338"),
+        QStringLiteral("671")
+    };
+    if (whoisReplies.contains(parsed.command) && parsed.params.size() >= 2) {
+        const QString whoisNick = parsed.params.at(1);
+        QString human;
+        const QStringList p = parsed.params;
+        if (parsed.command == QStringLiteral("311") && p.size() >= 6) {
+            human = QStringLiteral("User: %1@%2 | Real name: %3")
+                        .arg(p.at(2), p.at(3), p.mid(5).join(QLatin1Char(' ')));
+        } else if (parsed.command == QStringLiteral("312") && p.size() >= 4) {
+            human = QStringLiteral("Server: %1 — %2").arg(p.at(2), p.mid(3).join(QLatin1Char(' ')));
+        } else if (parsed.command == QStringLiteral("313")) {
+            human = QStringLiteral("IRC operator: yes");
+        } else if (parsed.command == QStringLiteral("317") && p.size() >= 4) {
+            bool okIdle = false;
+            bool okSignon = false;
+            const qint64 idle = p.at(2).toLongLong(&okIdle);
+            const qint64 signon = p.at(3).toLongLong(&okSignon);
+            human = QStringLiteral("Idle: %1 sec | Signed on: %2")
+                        .arg(okIdle ? QString::number(idle) : p.at(2),
+                             okSignon ? QDateTime::fromSecsSinceEpoch(signon).toLocalTime().toString(Qt::ISODate) : p.at(3));
+        } else if (parsed.command == QStringLiteral("319") && p.size() >= 3) {
+            human = QStringLiteral("Channels: %1").arg(p.mid(2).join(QLatin1Char(' ')));
+        } else if (parsed.command == QStringLiteral("330") && p.size() >= 3) {
+            human = QStringLiteral("Services account: %1").arg(p.at(2));
+        } else if (parsed.command == QStringLiteral("338") && p.size() >= 3) {
+            human = QStringLiteral("Actual host/IP: %1").arg(p.at(2));
+        } else if (parsed.command == QStringLiteral("301") && p.size() >= 3) {
+            human = QStringLiteral("Away: %1").arg(p.mid(2).join(QLatin1Char(' ')));
+        } else if (parsed.command == QStringLiteral("671")) {
+            human = QStringLiteral("Secure connection: yes (TLS)");
+        } else if (parsed.command == QStringLiteral("318")) {
+            human = QStringLiteral("Last Updated: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate));
+        } else {
+            human = QStringLiteral("[%1] %2")
+                        .arg(parsed.command, parsed.params.mid(1).join(QLatin1Char(' ')));
+        }
+        emit whoisReply(whoisNick, human, parsed.command == QStringLiteral("318"));
+        emit eventReceived(QStringLiteral("status"), QString(), QStringLiteral("[IRC %1] %2")
+                               .arg(parsed.command, parsed.params.join(QLatin1Char(' '))));
+        return;
+    }
+
     // Surface the standard numeric replies produced by interactive IRC
     // commands such as WHO/WHOIS/LIST/MODE/INVITE/MOTD and ban-list queries.
     // Without this, the command can succeed on the wire while appearing to do
@@ -1022,9 +1148,17 @@ void IrcBackend::run()
         emit eventReceived(QStringLiteral("status"), QString(),
                            QStringLiteral("[IRC] Registering nickname %1…").arg(m_nickname));
 
+        m_ircv3Capabilities.clear();
+        m_isupportTokens.clear();
+
         if (!m_settings.password.isEmpty()) {
             sendLine(*socket, QStringLiteral("PASS %1").arg(m_settings.password));
         }
+        // IRCv3 capability discovery is intentionally non-invasive: list what
+        // the server offers, request nothing, then end negotiation so classic
+        // registration proceeds normally. Servers without CAP simply ignore or
+        // reject these lines; classic 005/ISUPPORT is collected separately.
+        sendLine(*socket, QStringLiteral("CAP LS 302"));
         sendLine(*socket, QStringLiteral("NICK %1").arg(m_nickname));
         sendLine(*socket,
                  QStringLiteral("USER %1 0 * :%2")
@@ -1032,6 +1166,7 @@ void IrcBackend::run()
                           m_settings.realName.isEmpty()
                               ? appDefaultRealName()
                               : m_settings.realName));
+        sendLine(*socket, QStringLiteral("CAP END"));
 
         bool registered = false;
         while (!registered && !m_stopRequested) {
@@ -1209,8 +1344,15 @@ void IrcBackend::run()
             sendLine(*socket, QStringLiteral("QUIT :%1 signing off").arg(appDisplayName()));
         } catch (...) {
         }
-        socket->disconnectFromHost();
-        socket->waitForDisconnected(500);
+        // disconnectFromHost() can complete synchronously. Avoid calling
+        // waitForDisconnected() once Qt has already transitioned the socket
+        // to UnconnectedState, which otherwise prints a warning to stderr.
+        if (socket->state() != QAbstractSocket::UnconnectedState) {
+            socket->disconnectFromHost();
+            if (socket->state() != QAbstractSocket::UnconnectedState) {
+                socket->waitForDisconnected(500);
+            }
+        }
     } catch (const std::exception &e) {
         disconnectReason = QString::fromUtf8(e.what());
         emit backendError(QStringLiteral("IRC connection"), disconnectReason);

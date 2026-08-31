@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-APP="WaffleHouse-Client-Termux Build 0.9"
+APP="WaffleHouse-Termux 1.0"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PREFIX_EXPECTED="/data/data/com.termux/files/usr"
 BUILD="$ROOT/build-termux"
@@ -18,7 +18,7 @@ if [[ "${PREFIX:-}" != "$PREFIX_EXPECTED" ]] || [[ ! -d "$PREFIX_EXPECTED" ]]; t
 fi
 
 for arg in "$@"; do
-  case "$arg" in --clean|--pjsip|--test|--uninstall|--help|-h) ;; *) fail "Unknown option: $arg";; esac
+  case "$arg" in --clean|--pjsip|--test|--upgrade|--uninstall|--help|-h) ;; *) fail "Unknown option: $arg";; esac
 done
 if [[ " ${*:-} " == *" --help "* || " ${*:-} " == *" -h "* ]]; then
   cat <<USAGE
@@ -26,13 +26,14 @@ $APP builder
   ./build.sh --clean       clean app build
   ./build.sh --pjsip       force rebuild managed PJSIP 2.17
   ./build.sh --test        run source/parity tests only
+  ./build.sh --upgrade     rebuild/reinstall current source tree
   ./build.sh --uninstall   remove installed WaffleHouse files
 USAGE
   exit 0
 fi
 if [[ " ${*:-} " == *" --uninstall "* ]]; then
-  rm -f "$PREFIX/bin/wafflehouse-client"
-  rm -rf "$PREFIX/share/wafflehouse-client"
+  rm -f "$PREFIX/bin/wafflehouse-termux" "$PREFIX/bin/wafflehouse-client"
+  rm -rf "$PREFIX/share/wafflehouse-termux" "$PREFIX/share/wafflehouse-client"
   printf '%s removed.\n' "$APP"
   exit 0
 fi
@@ -82,12 +83,12 @@ install_xdg_provider(){
   install -d -m 0755 "$stage/DEBIAN"
   cat > "$stage/DEBIAN/control" <<CTRL
 Package: wafflehouse-termux-xdg-provider
-Version: 0.9.0
+Version: 1.0.0
 Architecture: all
-Maintainer: WaffleHouse-Client
+Maintainer: WaffleHouse-Termux
 Provides: xdg-utils
 Conflicts: xdg-utils
-Description: Metadata-only xdg-utils provider for WaffleHouse-Client-Termux Build 0.9
+Description: Metadata-only xdg-utils provider for WaffleHouse-Termux 1.0
  Contains no files. Termux's existing xdg-open command remains owned by termux-tools.
 CTRL
   chmod 0644 "$stage/DEBIAN/control"
@@ -104,8 +105,8 @@ install_dependencies(){
   install_xdg_provider
   say "Installing Termux-native dependencies"
   pkg install -y \
-    clang cmake make ninja pkg-config git curl ca-certificates \
-    qt6-qtbase libsodium ncurses openssl libuuid portaudio libopus \
+    clang cmake make ninja pkg-config git curl ca-certificates python \
+    qt6-qtbase qt6-qtmultimedia libsodium ncurses openssl libuuid portaudio libopus \
     mpv ffmpeg termux-api
 }
 
@@ -123,7 +124,7 @@ pjsip_limits_ok(){
   # configuration before trusting a cached managed PJSIP install.
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO[[:space:]]+1([[:space:]]|$)' "$cfg" || return 1
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI[[:space:]]+0([[:space:]]|$)' "$cfg" || return 1
-  # Native Termux has no Java VM. Build 0.9 replaces PJSIP's Android/JNI
+  # Native Termux has no Java VM. WaffleHouse-Termux 1.0 replaces PJSIP's Android/JNI
   # UUID backend with upstream guid_simple.o so SIP branch/Call-ID/tag values
   # are valid in a standalone terminal process.
   [[ -f "$PJINSTALL/.wafflehouse-termux-guid-backend" ]] || return 1
@@ -231,8 +232,10 @@ CFG
 }
 
 run_tests(){
-  say "Running Termux feature/parity gate"
+  say "Running WaffleHouse-Termux 1.0 regression gates"
   bash "$ROOT/tests/run-termux-tests.sh"
+  bash "$ROOT/tests/termux_sip_password_persistence_test.sh"
+  bash "$ROOT/tests/termux_sip_runtime_test.sh"
 }
 
 if [[ " ${*:-} " == *" --test "* ]]; then run_tests; exit 0; fi
@@ -254,10 +257,14 @@ cmake --build "$BUILD" -j "$JOBS"
 say "Installing $APP"
 cmake --install "$BUILD"
 
+# New canonical command plus backward-compatible WaffleHouse command.
+ln -sf "$PREFIX/bin/wafflehouse-termux" "$PREFIX/bin/wafflehouse-client"
+
 cat <<DONE
 
 $APP installed successfully.
-Run: wafflehouse-client
+Run: wafflehouse-termux
+Compatibility alias: wafflehouse-client
 Optional shared Android storage: termux-setup-storage
 SIP audio inspection: /audio-devices
 Android microphone permission test: wafflehouse-audio-preflight

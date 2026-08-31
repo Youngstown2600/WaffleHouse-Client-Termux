@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QFileDevice>
@@ -26,18 +27,51 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <signal.h>
 
 namespace {
 QString boolText(bool value)
 {
     return value ? QStringLiteral("on") : QStringLiteral("off");
 }
+
+QString findExternalExecutable(const QString &name)
+{
+    const QString onPath = QStandardPaths::findExecutable(name);
+    if (!onPath.isEmpty()) return onPath;
+
+#ifdef Q_OS_MACOS
+    // Finder-launched .app bundles normally do not inherit the user's shell PATH.
+    // Check the conventional package-manager locations explicitly so an mpv/ffmpeg
+    // installed by Homebrew, MacPorts, or Fink is still usable.
+    const QStringList dirs = {
+        QStringLiteral("/opt/homebrew/bin"),
+        QStringLiteral("/usr/local/bin"),
+        QStringLiteral("/opt/local/bin"),
+        QStringLiteral("/sw/bin")
+    };
+    for (const QString &dir : dirs) {
+        const QString candidate = QDir(dir).filePath(name);
+        const QFileInfo info(candidate);
+        if (info.exists() && info.isFile() && info.isExecutable()) return candidate;
+    }
+
+    if (name == QStringLiteral("mpv")) {
+        const QString appBinary = QStringLiteral("/Applications/mpv.app/Contents/MacOS/mpv");
+        const QFileInfo info(appBinary);
+        if (info.exists() && info.isFile() && info.isExecutable()) return appBinary;
+    }
+#endif
+    return {};
+}
 }
 
 MediaController::MediaController(QObject *parent)
     : QObject(parent)
 {
-    m_mpv = QStandardPaths::findExecutable(QStringLiteral("mpv"));
+    m_remoteSocket = qEnvironmentVariable("WAFFLEHOUSE_REMOTE_MEDIA_SOCKET").trimmed();
+    m_mpv = findExternalExecutable(QStringLiteral("mpv"));
+    m_ffmpeg = findExternalExecutable(QStringLiteral("ffmpeg"));
     probeBackendVersion();
 
     m_process = new QProcess(this);
@@ -49,6 +83,11 @@ MediaController::MediaController(QObject *parent)
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) { processFinished(code); });
 
+    m_remoteProcess = new QProcess(this);
+    m_remoteProcess->setProcessChannelMode(QProcess::MergedChannels);
+    connect(m_remoteProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) { remoteProcessFinished(code); });
+
     m_connectTimer = new QTimer(this);
     m_connectTimer->setInterval(100);
     connect(m_connectTimer, &QTimer::timeout, this, &MediaController::connectIpc);
@@ -56,21 +95,28 @@ MediaController::MediaController(QObject *parent)
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(1000);
     connect(m_refreshTimer, &QTimer::timeout, this, &MediaController::refreshObservedProperties);
+
+    m_remoteTimer = new QTimer(this);
+    m_remoteTimer->setInterval(250);
+    connect(m_remoteTimer, &QTimer::timeout, this, &MediaController::refreshRemotePosition);
+    m_remoteClock = new QElapsedTimer();
 }
 
 MediaController::~MediaController()
 {
     shutdown();
+    delete m_remoteClock;
+    m_remoteClock = nullptr;
 }
 
 bool MediaController::backendAvailable() const
 {
-    return !m_mpv.isEmpty();
+    return remoteAudioMode() ? !m_ffmpeg.isEmpty() : !m_mpv.isEmpty();
 }
 
 QString MediaController::backendExecutable() const
 {
-    return m_mpv;
+    return remoteAudioMode() ? m_ffmpeg : m_mpv;
 }
 
 void MediaController::probeBackendVersion()
@@ -113,8 +159,15 @@ QString MediaController::statusText() const
 
 QStringList MediaController::statusLines() const
 {
-    QString backend = backendAvailable() ? m_mpv : QStringLiteral("mpv not found");
-    if (!m_backendVersion.isEmpty()) backend += QStringLiteral(" (mpv %1)").arg(m_backendVersion);
+    QString backend;
+    if (remoteAudioMode()) {
+        backend = backendAvailable()
+            ? QStringLiteral("SSH companion via %1 (PCM16 48 kHz stereo)").arg(m_ffmpeg)
+            : QStringLiteral("SSH companion requested; ffmpeg not found");
+    } else {
+        backend = backendAvailable() ? m_mpv : QStringLiteral("mpv not found");
+        if (!m_backendVersion.isEmpty()) backend += QStringLiteral(" (mpv %1)").arg(m_backendVersion);
+    }
 
     QStringList out;
     out << QStringLiteral("Backend: %1").arg(backend)
@@ -176,6 +229,14 @@ void MediaController::cleanupIpcPath()
 
 bool MediaController::ensureBackend()
 {
+    if (remoteAudioMode()) {
+        if (m_ffmpeg.isEmpty()) {
+            emit errorMessage(QStringLiteral(
+                "SSH remote audio is active, but ffmpeg was not found on the WaffleHouse server."));
+            return false;
+        }
+        return true;
+    }
     if (!backendAvailable()) {
         emit errorMessage(QStringLiteral(
             "mpv was not found. Install mpv and retry."));
@@ -245,7 +306,7 @@ bool MediaController::startBackendProcess(bool compatibilityMode, QString *failu
     if (!compatibilityMode) {
         // These are quality-of-life/safety options, not requirements for the IPC
         // protocol. If a packaged mpv does not know one, ensureBackend() retries
-        // without them instead of disabling all WaffleHouse Media playback.
+        // without them instead of disabling all Media Center playback.
         args.insert(3, QStringLiteral("--input-terminal=no"));
         args.insert(4, QStringLiteral("--load-unsafe-playlists=no"));
         args.insert(5, QStringLiteral("--really-quiet"));
@@ -491,12 +552,168 @@ bool MediaController::looksLikeVideoFile(const QString &source)
 }
 
 
+
+QString MediaController::remoteAudioFilter() const
+{
+    static const int frequencies[10] = {60,170,310,600,1000,3000,6000,12000,14000,16000};
+    QStringList filters;
+    const double linear = m_muted ? 0.0 : static_cast<double>(m_volume) / 100.0;
+    filters << QStringLiteral("volume=%1").arg(linear, 0, 'f', 3);
+    for (int i = 0; i < m_eq.size(); ++i) {
+        if (qAbs(m_eq[i]) < 0.05) continue;
+        filters << QStringLiteral("equalizer=f=%1:t=q:w=1:g=%2")
+                       .arg(frequencies[i]).arg(m_eq[i], 0, 'f', 1);
+    }
+    return filters.join(QLatin1Char(','));
+}
+
+bool MediaController::startRemotePlayback(const QString &source, double startSeconds)
+{
+    if (!remoteAudioMode() || !ensureBackend()) return false;
+    const QString clean = source.trimmed();
+    if (clean.isEmpty()) return false;
+    if (m_remoteProcess->state() != QProcess::NotRunning) {
+        m_remoteStoppedByUser = true;
+        m_remoteProcess->terminate();
+        if (!m_remoteProcess->waitForFinished(500)) {
+            m_remoteProcess->kill();
+            m_remoteProcess->waitForFinished(250);
+        }
+    }
+
+    QStringList args = {
+        QStringLiteral("-nostdin"),
+        QStringLiteral("-hide_banner"),
+        QStringLiteral("-loglevel"), QStringLiteral("warning"),
+        QStringLiteral("-re")
+    };
+    if (startSeconds > 0.01) {
+        args << QStringLiteral("-ss") << QString::number(startSeconds, 'f', 3);
+    }
+    args << QStringLiteral("-i") << clean
+         << QStringLiteral("-vn")
+         << QStringLiteral("-af") << remoteAudioFilter()
+         << QStringLiteral("-c:a") << QStringLiteral("pcm_s16le")
+         << QStringLiteral("-f") << QStringLiteral("s16le")
+         << QStringLiteral("-ar") << QStringLiteral("48000")
+         << QStringLiteral("-ac") << QStringLiteral("2")
+         << QStringLiteral("unix://%1").arg(m_remoteSocket);
+
+    m_remoteStoppedByUser = false;
+    m_remoteProcess->start(m_ffmpeg, args);
+    if (!m_remoteProcess->waitForStarted(1500)) {
+        emit errorMessage(QStringLiteral("Could not start SSH remote media encoder: %1")
+                              .arg(m_remoteProcess->errorString()));
+        return false;
+    }
+
+    m_source = clean;
+    m_title = QFileInfo(clean).fileName();
+    if (m_title.isEmpty()) m_title = clean;
+    m_remoteBasePosition = qMax(0.0, startSeconds);
+    m_position = m_remoteBasePosition;
+    m_duration = 0.0;
+    m_paused = false;
+    m_idle = false;
+    m_remoteClock->restart();
+    m_remoteTimer->start();
+    emit idleChanged(false);
+    emit pauseChanged(false);
+    emit sourceChanged(m_source);
+    emit nowPlayingChanged(m_title);
+    emit positionChanged(m_position);
+    emit statusMessage(QStringLiteral("Streaming to SSH companion: %1").arg(m_title));
+    return true;
+}
+
+void MediaController::stopRemotePlayback(bool preserveQueue)
+{
+    Q_UNUSED(preserveQueue);
+    if (!remoteAudioMode()) return;
+    refreshRemotePosition();
+    m_remoteStoppedByUser = true;
+    m_remoteTimer->stop();
+    if (m_remoteProcess->state() != QProcess::NotRunning) {
+        m_remoteProcess->terminate();
+        if (!m_remoteProcess->waitForFinished(500)) {
+            m_remoteProcess->kill();
+            m_remoteProcess->waitForFinished(250);
+        }
+    }
+    m_paused = false;
+    m_idle = true;
+    emit pauseChanged(false);
+    emit idleChanged(true);
+}
+
+void MediaController::restartRemoteAt(double seconds)
+{
+    if (!remoteAudioMode() || m_source.isEmpty()) return;
+    startRemotePlayback(m_source, qMax(0.0, seconds));
+}
+
+void MediaController::refreshRemotePosition()
+{
+    if (!remoteAudioMode() || m_idle || !m_remoteClock->isValid()) return;
+    if (!m_paused) {
+        m_position = m_remoteBasePosition + static_cast<double>(m_remoteClock->elapsed()) / 1000.0;
+        emit positionChanged(m_position);
+    }
+}
+
+void MediaController::remoteProcessFinished(int exitCode)
+{
+    if (!remoteAudioMode()) return;
+    refreshRemotePosition();
+    m_remoteTimer->stop();
+    if (m_remoteStoppedByUser) return;
+
+    if (exitCode != 0) {
+        const QString detail = QString::fromLocal8Bit(m_remoteProcess->readAll()).trimmed();
+        emit errorMessage(QStringLiteral("SSH remote media stream ended unexpectedly%1")
+                              .arg(detail.isEmpty() ? QString() : QStringLiteral(": %1").arg(detail.left(500))));
+    }
+
+    if (m_playlistSources.isEmpty()) {
+        m_idle = true;
+        emit idleChanged(true);
+        return;
+    }
+
+    int nextIndex = m_playlistIndex;
+    if (m_repeatMode == QStringLiteral("one")) {
+        // keep current index
+    } else {
+        ++nextIndex;
+        if (nextIndex >= m_playlistSources.size()) {
+            if (m_repeatMode == QStringLiteral("all")) nextIndex = 0;
+            else {
+                m_idle = true;
+                emit idleChanged(true);
+                return;
+            }
+        }
+    }
+    m_playlistIndex = nextIndex;
+    QTimer::singleShot(0, this, [this, nextIndex] {
+        if (nextIndex >= 0 && nextIndex < m_playlistSources.size())
+            startRemotePlayback(m_playlistSources.at(nextIndex), 0.0);
+    });
+}
+
 bool MediaController::play(const QString &source)
 {
     const QString clean = source.trimmed();
     if (clean.isEmpty()) {
         emit errorMessage(QStringLiteral("No media source was supplied."));
         return false;
+    }
+    if (remoteAudioMode()) {
+        m_playlistSources = {clean};
+        m_playlistIndex = 0;
+        emit playlistChanged();
+        emit playlistEntriesChanged(m_playlistSources, m_playlistSources, m_playlistIndex);
+        return startRemotePlayback(clean, 0.0);
     }
     if (!ensureBackend()) return false;
     if (!sendLoadFile(clean, QStringLiteral("replace"))) return false;
@@ -520,6 +737,14 @@ bool MediaController::enqueue(const QString &source)
 {
     const QString clean = source.trimmed();
     if (clean.isEmpty() || !ensureBackend()) return false;
+    if (remoteAudioMode()) {
+        m_playlistSources.append(clean);
+        if (m_playlistIndex < 0) m_playlistIndex = 0;
+        emit playlistChanged();
+        emit playlistEntriesChanged(m_playlistSources, m_playlistSources, m_playlistIndex);
+        if (m_idle) return startRemotePlayback(m_playlistSources.at(m_playlistIndex), 0.0);
+        return true;
+    }
     const bool ok = sendLoadFile(clean, QStringLiteral("append-play"));
     if (ok) emit playlistChanged();
     return ok;
@@ -529,6 +754,44 @@ bool MediaController::loadPlaylist(const QString &pathOrUrl, bool replace)
 {
     const QString clean = pathOrUrl.trimmed();
     if (clean.isEmpty() || !ensureBackend()) return false;
+    if (remoteAudioMode()) {
+        QStringList entries;
+        QFile file(clean);
+        if (file.exists() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const QString baseDir = QFileInfo(clean).absolutePath();
+            while (!file.atEnd()) {
+                QString line = QString::fromUtf8(file.readLine()).trimmed();
+                if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
+                if (line.contains(QLatin1Char('=')) && line.startsWith(QStringLiteral("File"), Qt::CaseInsensitive))
+                    line = line.mid(line.indexOf(QLatin1Char('=')) + 1).trimmed();
+                if (line.isEmpty()) continue;
+                if (!line.contains(QStringLiteral("://")) && QFileInfo(line).isRelative())
+                    line = QDir(baseDir).filePath(line);
+                entries << line;
+            }
+        } else {
+            // A URL or non-playlist source is still a valid one-entry queue.
+            entries << clean;
+        }
+        if (entries.isEmpty()) {
+            emit errorMessage(QStringLiteral("Playlist contains no playable entries: %1").arg(clean));
+            return false;
+        }
+        if (replace) {
+            stopRemotePlayback(true);
+            m_playlistSources = entries;
+            m_playlistIndex = 0;
+        } else {
+            m_playlistSources.append(entries);
+            if (m_playlistIndex < 0) m_playlistIndex = 0;
+        }
+        emit playlistChanged();
+        emit playlistEntriesChanged(m_playlistSources, m_playlistSources, m_playlistIndex);
+        emit statusMessage(QStringLiteral("Loaded %1 remote playlist entries from %2")
+                               .arg(entries.size()).arg(clean));
+        if (replace) return startRemotePlayback(m_playlistSources.at(0), 0.0);
+        return true;
+    }
     const bool ok = sendCommand({
         QStringLiteral("loadlist"),
         clean,
@@ -546,6 +809,13 @@ bool MediaController::loadPlaylist(const QString &pathOrUrl, bool replace)
 void MediaController::playPlaylistIndex(int index)
 {
     if (index < 0) return;
+    if (remoteAudioMode()) {
+        if (index >= m_playlistSources.size()) return;
+        m_playlistIndex = index;
+        startRemotePlayback(m_playlistSources.at(index), 0.0);
+        emit playlistEntriesChanged(m_playlistSources, m_playlistSources, m_playlistIndex);
+        return;
+    }
     sendCommand({QStringLiteral("playlist-play-index"), QString::number(index)},
                 QStringLiteral("play playlist index"));
 }
@@ -553,61 +823,156 @@ void MediaController::playPlaylistIndex(int index)
 void MediaController::removePlaylistIndex(int index)
 {
     if (index < 0) return;
+    if (remoteAudioMode()) {
+        if (index >= m_playlistSources.size()) return;
+        const bool removingCurrent = index == m_playlistIndex;
+        m_playlistSources.removeAt(index);
+        if (m_playlistSources.isEmpty()) {
+            stopRemotePlayback(true);
+            m_playlistIndex = -1;
+        } else if (removingCurrent) {
+            m_playlistIndex = qMin(index, m_playlistSources.size() - 1);
+            startRemotePlayback(m_playlistSources.at(m_playlistIndex), 0.0);
+        } else if (index < m_playlistIndex) {
+            --m_playlistIndex;
+        }
+        emit playlistChanged();
+        emit playlistEntriesChanged(m_playlistSources, m_playlistSources, m_playlistIndex);
+        return;
+    }
     sendCommand({QStringLiteral("playlist-remove"), QString::number(index)},
                 QStringLiteral("remove playlist entry"));
 }
 
 void MediaController::clearPlaylist()
 {
+    if (remoteAudioMode()) {
+        stopRemotePlayback(true);
+        m_playlistSources.clear();
+        m_playlistIndex = -1;
+        emit playlistChanged();
+        emit playlistEntriesChanged({}, {}, -1);
+        return;
+    }
     sendCommand({QStringLiteral("playlist-clear")}, QStringLiteral("clear playlist"));
 }
 
-void MediaController::pause() { setProperty(QStringLiteral("pause"), true); }
+void MediaController::pause()
+{
+    if (remoteAudioMode()) {
+        if (m_remoteProcess->state() == QProcess::NotRunning || m_paused) return;
+        refreshRemotePosition();
+        if (::kill(static_cast<pid_t>(m_remoteProcess->processId()), SIGSTOP) == 0) {
+            m_remoteBasePosition = m_position;
+            m_paused = true;
+            m_remoteTimer->stop();
+            emit pauseChanged(true);
+            emit statusMessage(QStringLiteral("Remote playback paused."));
+        }
+        return;
+    }
+    setProperty(QStringLiteral("pause"), true);
+}
+
 void MediaController::resume()
 {
+    if (remoteAudioMode()) {
+        if (m_idle && !m_playlistSources.isEmpty()) {
+            if (m_playlistIndex < 0) m_playlistIndex = 0;
+            startRemotePlayback(m_playlistSources.at(m_playlistIndex), 0.0);
+            return;
+        }
+        if (!m_paused || m_remoteProcess->state() == QProcess::NotRunning) return;
+        if (::kill(static_cast<pid_t>(m_remoteProcess->processId()), SIGCONT) == 0) {
+            m_paused = false;
+            m_remoteClock->restart();
+            m_remoteTimer->start();
+            emit pauseChanged(false);
+            emit statusMessage(QStringLiteral("Remote playback resumed."));
+        }
+        return;
+    }
     if (m_idle && !m_playlistSources.isEmpty()) {
-        // Stop intentionally preserves the queue. A subsequent Play should be
-        // deterministic even though mpv clears its active playlist position:
-        // restart from the first queued item without requiring a GUI selection.
         sendCommand({QStringLiteral("playlist-play-index"), QStringLiteral("0")},
                     QStringLiteral("play first queued item after stop"));
         return;
     }
     setProperty(QStringLiteral("pause"), false);
 }
-void MediaController::togglePause() { sendCommand({QStringLiteral("cycle"), QStringLiteral("pause")}); }
+
+void MediaController::togglePause()
+{
+    if (remoteAudioMode()) { m_paused ? resume() : pause(); return; }
+    sendCommand({QStringLiteral("cycle"), QStringLiteral("pause")});
+}
+
 void MediaController::stop()
 {
-    // mpv's plain `stop` clears the playlist. Client/API users want transport
-    // Stop semantics instead: unload playback but preserve the queue.
+    if (remoteAudioMode()) {
+        stopRemotePlayback(true);
+        emit statusMessage(QStringLiteral("Remote playback stopped; playlist preserved."));
+        return;
+    }
     sendCommand({QStringLiteral("stop"), QStringLiteral("keep-playlist")},
                 QStringLiteral("stop playback and keep playlist"));
     emit statusMessage(QStringLiteral("Playback stopped; playlist preserved."));
 }
-void MediaController::next() { sendCommand({QStringLiteral("playlist-next"), QStringLiteral("force")}); }
-void MediaController::previous() { sendCommand({QStringLiteral("playlist-prev"), QStringLiteral("force")}); }
+
+void MediaController::next()
+{
+    if (remoteAudioMode()) {
+        if (m_playlistSources.isEmpty()) return;
+        int index = m_playlistIndex + 1;
+        if (index >= m_playlistSources.size()) index = (m_repeatMode == QStringLiteral("all")) ? 0 : m_playlistSources.size()-1;
+        playPlaylistIndex(index);
+        return;
+    }
+    sendCommand({QStringLiteral("playlist-next"), QStringLiteral("force")});
+}
+
+void MediaController::previous()
+{
+    if (remoteAudioMode()) {
+        if (m_playlistSources.isEmpty()) return;
+        int index = m_playlistIndex - 1;
+        if (index < 0) index = (m_repeatMode == QStringLiteral("all")) ? m_playlistSources.size()-1 : 0;
+        playPlaylistIndex(index);
+        return;
+    }
+    sendCommand({QStringLiteral("playlist-prev"), QStringLiteral("force")});
+}
 
 void MediaController::seekRelative(double seconds)
 {
+    if (remoteAudioMode()) { refreshRemotePosition(); restartRemoteAt(qMax(0.0, m_position + seconds)); return; }
     sendCommand({QStringLiteral("seek"), QString::number(seconds, 'f', 3), QStringLiteral("relative")});
 }
 
 void MediaController::seekAbsolute(double seconds)
 {
+    if (remoteAudioMode()) { restartRemoteAt(qMax(0.0, seconds)); return; }
     sendCommand({QStringLiteral("seek"), QString::number(qMax(0.0, seconds), 'f', 3), QStringLiteral("absolute")});
 }
 
 void MediaController::setVolume(int percent)
 {
     m_volume = qBound(0, percent, 150);
-    setProperty(QStringLiteral("volume"), m_volume);
+    if (remoteAudioMode()) {
+        if (!m_idle && !m_source.isEmpty()) { refreshRemotePosition(); restartRemoteAt(m_position); }
+    } else {
+        setProperty(QStringLiteral("volume"), m_volume);
+    }
     emit volumeChanged(m_volume);
 }
 
 void MediaController::setMuted(bool muted)
 {
     m_muted = muted;
-    setProperty(QStringLiteral("mute"), muted);
+    if (remoteAudioMode()) {
+        if (!m_idle && !m_source.isEmpty()) { refreshRemotePosition(); restartRemoteAt(m_position); }
+    } else {
+        setProperty(QStringLiteral("mute"), muted);
+    }
     emit muteChanged(muted);
 }
 
@@ -620,8 +985,10 @@ void MediaController::setShuffle(bool enabled)
 {
     if (!ensureBackend()) return;
     if (enabled == m_shuffle) return;
-    sendCommand({enabled ? QStringLiteral("playlist-shuffle")
-                         : QStringLiteral("playlist-unshuffle")});
+    if (!remoteAudioMode()) {
+        sendCommand({enabled ? QStringLiteral("playlist-shuffle")
+                             : QStringLiteral("playlist-unshuffle")});
+    }
     m_shuffle = enabled;
     emit statusMessage(QStringLiteral("Shuffle %1.").arg(enabled ? QStringLiteral("enabled")
                                                                  : QStringLiteral("disabled")));
@@ -638,12 +1005,14 @@ void MediaController::setRepeatMode(const QString &mode)
     }
 
     m_repeatMode = normalized;
-    setProperty(QStringLiteral("loop-file"),
-                normalized == QStringLiteral("one") ? QJsonValue(QStringLiteral("inf"))
-                                                    : QJsonValue(QStringLiteral("no")));
-    setProperty(QStringLiteral("loop-playlist"),
-                normalized == QStringLiteral("all") ? QJsonValue(QStringLiteral("inf"))
-                                                    : QJsonValue(QStringLiteral("no")));
+    if (!remoteAudioMode()) {
+        setProperty(QStringLiteral("loop-file"),
+                    normalized == QStringLiteral("one") ? QJsonValue(QStringLiteral("inf"))
+                                                        : QJsonValue(QStringLiteral("no")));
+        setProperty(QStringLiteral("loop-playlist"),
+                    normalized == QStringLiteral("all") ? QJsonValue(QStringLiteral("inf"))
+                                                        : QJsonValue(QStringLiteral("no")));
+    }
     emit statusMessage(QStringLiteral("Repeat mode: %1").arg(normalized));
 }
 
@@ -660,13 +1029,22 @@ void MediaController::setEqualizerBand(int band, double gainDb)
 void MediaController::resetEqualizer()
 {
     for (double &value : m_eq) value = 0.0;
-    sendCommand({QStringLiteral("af"), QStringLiteral("clr"), QString()},
-                QStringLiteral("reset equalizer"));
+    if (remoteAudioMode()) {
+        if (!m_idle && !m_source.isEmpty()) { refreshRemotePosition(); restartRemoteAt(m_position); }
+    } else {
+        sendCommand({QStringLiteral("af"), QStringLiteral("clr"), QString()},
+                    QStringLiteral("reset equalizer"));
+    }
     emit statusMessage(QStringLiteral("Media equalizer reset to flat."));
 }
 
 void MediaController::rebuildEqualizer()
 {
+    if (remoteAudioMode()) {
+        if (!m_idle && !m_source.isEmpty()) { refreshRemotePosition(); restartRemoteAt(m_position); }
+        emit statusMessage(QStringLiteral("10-band remote media equalizer updated."));
+        return;
+    }
     static const int frequencies[10] = {
         60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000
     };
@@ -874,6 +1252,15 @@ void MediaController::shutdown()
     m_shuttingDown = true;
     m_connectTimer->stop();
     m_refreshTimer->stop();
+    if (m_remoteTimer) m_remoteTimer->stop();
+    m_remoteStoppedByUser = true;
+    if (m_remoteProcess && m_remoteProcess->state() != QProcess::NotRunning) {
+        m_remoteProcess->terminate();
+        if (!m_remoteProcess->waitForFinished(750)) {
+            m_remoteProcess->kill();
+            m_remoteProcess->waitForFinished(300);
+        }
+    }
     if (ipcConnected()) {
         // Ask mpv to exit cleanly, then close our native Unix-domain socket.
         QJsonArray command;

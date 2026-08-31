@@ -1,5 +1,6 @@
 #include "trunkmonkey/CallSession.h"
 #include "trunkmonkey/Logger.h"
+#include "trunkmonkey/SipEngine.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -43,9 +44,9 @@ std::pair<double,double> estimateVoiceQuality(double rttMs,double jitterMs,doubl
 }
 }
 
-CallSession::CallSession(pj::Account& account, Logger& logger, CallDirection direction,
+CallSession::CallSession(pj::Account& account, Logger& logger, SipEngine& engine, CallDirection direction,
                          CallPurpose purpose, int id)
-    : pj::Call(account, id), logger_(logger)
+    : pj::Call(account, id), logger_(logger), engine_(engine)
 {
     snapshot_.id = id;
     snapshot_.direction = direction;
@@ -158,6 +159,21 @@ void CallSession::sendDtmfDigits(const std::string& digits,unsigned durationMs)
     pj::Call::sendDtmf(param);
 }
 
+void CallSession::blindTransfer(const std::string& destination)
+{
+    if(destination.empty()) throw std::runtime_error("Transfer destination is empty");
+    pj::CallOpParam prm(true);
+    xfer(destination, prm);
+}
+
+void CallSession::attendedTransfer(CallSession& replacementCall)
+{
+    if(replacementCall.getId()==PJSUA_INVALID_ID) throw std::runtime_error("Consultation call is not active");
+    pj::CallOpParam prm(true);
+    xferReplaces(replacementCall, prm);
+}
+
+
 void CallSession::setMicrophoneMuted(bool muted)
 {
     bool foreground=false;
@@ -170,14 +186,14 @@ void CallSession::setMicrophoneMuted(bool muted)
     if(!foreground){notify();return;}
     try{
         const auto info=getInfo();
-        auto& audio=pj::Endpoint::instance().audDevManager();
+        auto& capture=engine_.captureMedia();
         for(unsigned i=0;i<info.media.size();++i){
             if(info.media[i].type!=PJMEDIA_TYPE_AUDIO)continue;
             const auto status=info.media[i].status;
             if(status!=PJSUA_CALL_MEDIA_ACTIVE&&status!=PJSUA_CALL_MEDIA_REMOTE_HOLD)continue;
             auto media=getAudioMedia(static_cast<int>(i));
-            if(muted){try{audio.getCaptureDevMedia().stopTransmit(media);}catch(...){}}
-            else if(status==PJSUA_CALL_MEDIA_ACTIVE){audio.getCaptureDevMedia().startTransmit(media);}
+            if(muted){try{capture.stopTransmit(media);}catch(...){}}
+            else if(status==PJSUA_CALL_MEDIA_ACTIVE){capture.startTransmit(media);}
             break;
         }
         logger_.info(std::string("Foreground microphone ")+(muted?"muted":"unmuted")+" for call "+std::to_string(getId()));
@@ -193,74 +209,68 @@ void CallSession::attachAudio()
     detachAudio();
     try {
         const auto info = getInfo();
-        auto& audio = pj::Endpoint::instance().audDevManager();
-#ifdef __ANDROID__
         bool speakerOnly = false;
-        // Build 0.8 deliberately starts Termux on PJSIP's null sound device so
-        // SIP signaling and RTP creation can never be vetoed by Android audio.
-        // Once a call has negotiated audio, try full duplex. If OpenSL capture
-        // cannot start (normally missing RECORD_AUDIO permission), keep the call
-        // alive and fall back to playback-only rather than failing the INVITE.
-        if (!audio.sndIsActive()) {
-            try {
-                audio.setNoDev();
-                audio.setCaptureDev(PJMEDIA_AUD_DEFAULT_CAPTURE_DEV);
-                audio.setPlaybackDev(PJMEDIA_AUD_DEFAULT_PLAYBACK_DEV);
-                audio.setSndDevMode(0);
-                logger_.info("[AUDIO] Termux full-duplex sound device activated for call " + std::to_string(getId()));
-            } catch (const pj::Error& fullDuplexError) {
-                logger_.warn("[AUDIO] Termux microphone/full-duplex open failed; preserving call and trying speaker-only: " + fullDuplexError.info());
+#ifdef WAFFLEHOUSE_TERMUX
+        // WaffleHouse-Termux starts PJSIP on a null sound device so missing
+        // Android microphone permission can never veto REGISTER/INVITE/RTP.
+        // Activate hardware only after negotiated audio exists. If capture
+        // fails, preserve the call and keep receive audio where possible.
+        if (!engine_.remoteAudioActive()) {
+            auto& audio = pj::Endpoint::instance().audDevManager();
+            if (!audio.sndIsActive()) {
                 try {
                     audio.setNoDev();
+                    audio.setCaptureDev(PJMEDIA_AUD_DEFAULT_CAPTURE_DEV);
                     audio.setPlaybackDev(PJMEDIA_AUD_DEFAULT_PLAYBACK_DEV);
-                    audio.setSndDevMode(PJSUA_SND_DEV_SPEAKER_ONLY);
-                    speakerOnly = true;
-                    logger_.warn("[AUDIO] Termux call is playback-only. Install the matching Termux:API Android add-on and grant Microphone permission, then use /audio-reopen.");
-                } catch (const pj::Error& playbackError) {
-                    try { audio.setNullDev(); } catch (...) {}
-                    logger_.warn("[AUDIO] Termux playback device also failed; RTP remains active with null audio: " + playbackError.info());
-                    return;
+                    audio.setSndDevMode(0);
+                    logger_.info("[AUDIO] Termux full-duplex sound device activated for call " + std::to_string(getId()));
+                } catch (const pj::Error& fullDuplexError) {
+                    logger_.warn("[AUDIO] Termux microphone/full-duplex open failed; preserving call and trying speaker-only: " + fullDuplexError.info());
+                    try {
+                        audio.setNoDev();
+                        audio.setPlaybackDev(PJMEDIA_AUD_DEFAULT_PLAYBACK_DEV);
+                        audio.setSndDevMode(PJSUA_SND_DEV_SPEAKER_ONLY);
+                        speakerOnly = true;
+                        logger_.warn("[AUDIO] Termux call is playback-only. Grant Android microphone permission, then use /audio-reopen.");
+                    } catch (const pj::Error& playbackError) {
+                        try { audio.setNullDev(); } catch (...) {}
+                        logger_.warn("[AUDIO] Termux playback device also failed; RTP remains active with null audio: " + playbackError.info());
+                        return;
+                    }
                 }
             }
         }
 #endif
+        auto& playback = engine_.playbackMedia();
         for (unsigned i = 0; i < info.media.size(); ++i) {
-            if (info.media[i].type != PJMEDIA_TYPE_AUDIO) {
-                continue;
-            }
+            if (info.media[i].type != PJMEDIA_TYPE_AUDIO) continue;
             const auto status = info.media[i].status;
-            if (status != PJSUA_CALL_MEDIA_ACTIVE && status != PJSUA_CALL_MEDIA_REMOTE_HOLD) {
-                continue;
-            }
+            if (status != PJSUA_CALL_MEDIA_ACTIVE && status != PJSUA_CALL_MEDIA_REMOTE_HOLD) continue;
 
             auto media = getAudioMedia(static_cast<int>(i));
             try {
-                media.startTransmit(audio.getPlaybackDevMedia());
+                media.startTransmit(playback);
             } catch (const pj::Error& e) {
                 logger_.warn("Unable to attach call playback audio: " + e.info());
             }
             bool muted=false;{std::lock_guard<std::mutex> lock(mutex_);muted=microphoneMuted_;}
-            if (status == PJSUA_CALL_MEDIA_ACTIVE && !muted) {
-#ifdef __ANDROID__
-                if (!speakerOnly) {
-#endif
-                    try {
-                        audio.getCaptureDevMedia().startTransmit(media);
-                    } catch (const pj::Error& e) {
-                        // Capture failure must never tear down an otherwise valid
-                        // SIP/RTP call. The user may still receive audio and can
-                        // recover the mic later with /audio-reopen.
-                        logger_.warn("Unable to attach call capture audio; call remains active: " + e.info());
-                    }
-#ifdef __ANDROID__
+            if (status == PJSUA_CALL_MEDIA_ACTIVE && !muted && !speakerOnly) {
+                try {
+                    auto& capture = engine_.captureMedia();
+                    capture.startTransmit(media);
+                } catch (const pj::Error& e) {
+                    logger_.warn("Unable to attach call capture audio; call remains active: " + e.info());
+                } catch (const std::exception& e) {
+                    logger_.warn(std::string("Unable to attach call capture audio; call remains active: ") + e.what());
                 }
-#endif
             }
             logger_.info("Audio attached to foreground call " + std::to_string(getId()));
             break;
         }
     } catch (const pj::Error& e) {
         logger_.warn("Unable to attach call audio: " + e.info());
+    } catch (const std::exception& e) {
+        logger_.warn(std::string("Unable to attach call audio: ") + e.what());
     }
 }
 
@@ -268,15 +278,16 @@ void CallSession::detachAudio()
 {
     try {
         const auto info = getInfo();
-        auto& audio = pj::Endpoint::instance().audDevManager();
+        auto& playback = engine_.playbackMedia();
+        auto& capture = engine_.captureMedia();
         for (unsigned i = 0; i < info.media.size(); ++i) {
             if (info.media[i].type != PJMEDIA_TYPE_AUDIO) {
                 continue;
             }
             try {
                 auto media = getAudioMedia(static_cast<int>(i));
-                audio.getCaptureDevMedia().stopTransmit(media);
-                media.stopTransmit(audio.getPlaybackDevMedia());
+                capture.stopTransmit(media);
+                media.stopTransmit(playback);
             } catch (...) {
             }
         }
@@ -441,7 +452,7 @@ void CallSession::startSipTraceFile(const std::string& path)
     }
     protectFile(path);
     sipTracePath_ = path;
-    sipTraceFile_ << "# WaffleHouse-Client 1.0.0 single-call SIP trace\n# Call-ID: "
+    sipTraceFile_ << "# WaffleHouse-Termux 1.0 single-call SIP trace\n# Call-ID: "
                   << snapshot_.callIdString << "\n\n";
     for (const auto& entry : sipTrace_) {
         sipTraceFile_ << formatTraceEntry(entry);

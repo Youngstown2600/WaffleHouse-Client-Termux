@@ -1,39 +1,39 @@
-WaffleHouse-Client-Termux Build 0.9 — responsive TUI + retained SIP/RTP validation
-==============================================================================
+WaffleHouse-Termux 1.0 — source/parity validation
+================================================
 
-Build baseline
+Release target
 --------------
-Build 0.9 is based directly on the Build 0.8 source that completed a successful
-real-device SIP registration and test call with working two-way audio on the target
-Android/Termux phone. No SIP/RTP/audio behavior was intentionally removed or changed
-by the responsive-TUI work.
+Native Termux CLI based on the WaffleHouse-Client 5.1 shared protocol/core
+implementation, with the known-good native Android/Termux runtime changes from
+Termux Build 0.9 preserved where desktop 5.1 behavior is not directly portable.
 
-Responsive terminal review
---------------------------
-PASS: live PTY size is sampled with TIOCGWINSZ on Termux.
-PASS: ncurses resizeterm() is called when Android changes rows/columns.
-PASS: layout reflows for portrait, landscape, split-screen and soft-keyboard resize.
-PASS: status and input rows remain anchored at the bottom.
-PASS: optional connection/footer chrome collapses before conversation space.
-PASS: narrow terminals use compact header/status/input variants.
-PASS: minimum interactive geometry is 24x6 with a safe resize notice below that.
-PASS: side panes are automatically suppressed on narrow screens.
-PASS: popup/dialog widths and heights are bounded by the live terminal size.
-PASS: BBS ANSI model resizes to the visible content pane.
-PASS: Telnet NAWS is updated live after resize when NAWS was negotiated.
+Static regression coverage included in this archive
+----------------------------------------------------
+1. Release identity and CLI-only build boundaries.
+2. AIM/OSCAR 5.1 NINA network profiles/bootstrap markers.
+3. Native OSCAR idle/presence and diagnostic modes.
+4. OSCAR voice engine and CLI command wiring.
+5. Unified contact/history/capability core.
+6. Current SIP compatibility including Asterisk chan_sip and concurrent-account
+   capacity assumptions.
+7. Termux PJSIP GUID, PortAudio, null-device, speaker-only, runtime-path, and
+   password-persistence safeguards.
+8. Exact Telnet/BBS columns/rows, CSI outer-terminal resize request, live
+   TIOCGWINSZ/resizeterm detection, visible-grid fallback, and NAWS updates.
+9. Responsive 24x6 phone layout and adaptive popup sizes.
+10. Termux shared Downloads, browser handoff, media-player integration, and
+    installer/update aliases.
 
-SIP/RTP/audio preservation
---------------------------
-PASS: native PJLIB GUID backend remains enabled; REGISTER transaction IDs remain valid.
-PASS: PJSIP null-device/deferred-hardware design remains intact.
-PASS: full-duplex audio and speaker-only fallback remain intact.
-PASS: RTP/RTCP ioqueue, worker thread and telemetry remain intact.
-PASS: SIP global trace and registration diagnostics remain intact.
-PASS: Android microphone preflight helper remains installed.
+Run from the source root:
 
-Validation
-----------
-Termux parity/static source gate: 57/57 PASS.
-All project shell scripts: bash -n PASS.
-Target-phone Build 0.8 runtime result supplied during testing: SIP REGISTER 200 OK and
-a completed test call with no audio issues. Build 0.9 changes TUI geometry only.
+  ./tests/run-termux-tests.sh
+  ./tests/termux_sip_password_persistence_test.sh
+  ./tests/termux_sip_runtime_test.sh
+
+Important runtime note
+----------------------
+The archive-preparation environment is Linux, not Android/Termux. The included
+checks can validate source parity, shell syntax, and merge invariants here, but
+they cannot substitute for compiling against Termux's Qt/PJSIP packages or for
+placing a real SIP/AIM/Telnet call/session on an Android phone. Perform the final
+build and live audio/network smoke test inside Termux with ./build.sh.

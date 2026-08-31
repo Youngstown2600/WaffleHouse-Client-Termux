@@ -27,8 +27,8 @@ QByteArray fromB64url(const QString &text)
 }
 
 constexpr qint64 MaxAdvertisedFileSize = 1024LL * 1024LL * 1024LL; // 1 GiB guardrail.
-constexpr qint64 AckRetryMs = 5000;
-constexpr int MaxChunkRetries = 12;
+constexpr qint64 AckRetryMs = 7000;
+constexpr int MaxChunkRetries = 16;
 } // namespace
 
 bool CpxFileTransferManager::looksLikeMessage(const QString &plaintext)

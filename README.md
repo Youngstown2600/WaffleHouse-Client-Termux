@@ -1,87 +1,104 @@
-# WaffleHouse-Client-Termux Build 0.9
+# WaffleHouse-Termux 1.0
 
-A dedicated Android/Termux CLI build of WaffleHouse-Client. This is **not** the Linux desktop binary with `--cli` forced on: the Termux target has its own entry point and compiles no Qt Widgets/GUI frontend code.
+**WaffleHouse-Termux 1.0** is the native Android/Termux CLI edition of WaffleHouse. This release moves the old Termux 0.9 branch onto the **WaffleHouse-Client 5.1 protocol/core baseline** while preserving the Android-specific runtime fixes that made the Termux build usable in the first place.
 
-## Preserved features
+It is intentionally a terminal application: no Qt Widgets GUI and no X11 requirement. The executable is `wafflehouse-termux`; `wafflehouse-client` is installed as a compatibility alias.
 
-- AIM/OSCAR accounts, buddy presence, IM and private rooms
-- IRC accounts, channels and IRC `/commands`
-- Telnet/BBS sessions with ANSI terminal emulation
-- SIP/PJSIP 2.17 softphone, multiple accounts, calls, DTMF, hold/mute and SIP diagnostics
-- Secure rooms and encrypted direct messaging
-- Secure/unsecured file transfer and direct transfer
-- Saved profiles/accounts and CLI themes
-- Media playback, streams and playlists retained from the supplied 3.1r8 baseline
+## What moved to the 5.1 core
 
-## Termux-native differences
+- AIM/OSCAR with the 5.1 NINA/NINAPatcher-compatible sign-on path, `auto` / `nina` / `custom` network profiles, native buddy presence/idle state, login/full-wire diagnostic modes, redirected AIM chat services, profiles, rooms, typing, secure messaging/file-transfer plumbing, and OSCAR voice support.
+- IRC with the current 5.1 CLI behavior and commands.
+- Telnet/BBS with saved **exact columns × rows**, NAWS updates, responsive rendering, and auto-fit behavior adapted for Termux.
+- SIP/VoIP with concurrent account support, current call controls, blind/attended transfer, 5.1 diagnostics, remote-audio plumbing, and server compatibility profiles for generic SIP, Asterisk `chan_pjsip`, and legacy `chan_sip`.
+- The unified 5.x contact, history, and capability stores.
+- Media/stream commands, themes, secure rooms, encrypted transfers, notification handling, and the newer CLI command surface.
 
-- CLI only; no desktop Qt Widgets or X11 window is compiled into WaffleHouse
-- Qt Core + Network remain because the existing protocol engines are built on them
-- `pkg` is used for Termux packages
-- no CPAN or Perl command is used by the WaffleHouse builder
-- Termux's own `xdg-open`/`termux-open-url` is reused
-- shared Downloads storage is used when `termux-setup-storage` has been granted
-- PJSIP is built specifically for Termux using the Termux PortAudio/OpenSL ES and libopus packages
+## Telnet/BBS auto-fit on Termux
 
-## Build
+Desktop WaffleHouse 5.1 can directly shrink the Qt terminal widget's font until the configured BBS grid fits. A native ncurses process inside Termux cannot directly control the Termux app's font size, so 1.0 implements the closest correct equivalent:
+
+1. A BBS profile keeps its requested geometry (for example 80×24 or 132×24).
+2. With **Auto-fit BBS geometry** enabled, WaffleHouse-Termux requests an outer terminal size large enough for that grid.
+3. It reads the real Android/Termux terminal dimensions with `TIOCGWINSZ` and tracks live changes.
+4. If Termux accepts the resize—or you pinch the Termux font smaller / rotate the device so the grid fits—the configured exact size is used and advertised through Telnet NAWS.
+5. If the phone still cannot physically show the requested grid, WaffleHouse uses the largest grid that actually fits the visible pane instead of rendering off-screen.
+
+The saved profile is **not** permanently reduced by a small phone screen. When more cells become available, the session automatically grows back toward the requested geometry.
+
+## Build in Termux
+
+From the extracted source directory:
 
 ```sh
-pkg install unzip
-unzip WaffleHouse-Client-Termux-Build-0.9.zip
-cd WaffleHouse-Client-Termux-Build-0.9
-chmod +x build.sh
-./build.sh --clean
+chmod +x build.sh build-termux.sh client-up.sh
+./build.sh
 ```
 
-Then run:
+The builder installs the required Termux packages, builds/validates the managed **PJSIP 2.17** configuration, builds WaffleHouse-Termux, installs it under `$PREFIX/bin`, and creates the compatibility alias.
+
+Run it with:
+
+```sh
+wafflehouse-termux
+```
+
+The old command also works after installation:
 
 ```sh
 wafflehouse-client
 ```
 
-For Android shared storage:
+To rebuild the current tree later:
 
 ```sh
-termux-setup-storage
+./client-up.sh
 ```
 
-## Builder options
+Useful builder switches:
 
 ```text
-./build.sh --clean       clean application build
-./build.sh --pjsip       force rebuild of managed PJSIP 2.17
-./build.sh --test        run source/parity tests only
-./build.sh --uninstall   uninstall WaffleHouse-Client files
+./build.sh --clean       clean WaffleHouse build output
+./build.sh --pjsip       force rebuild managed PJSIP 2.17
+./build.sh --test        run the Termux source/parity checks
+./build.sh --upgrade     rebuild/reinstall this source tree
+./build.sh --uninstall   remove installed launchers/files
 ```
 
-## Termux runtime paths
+## SIP/Android runtime behavior retained from 0.9
 
-WaffleHouse-Client uses Termux's writable `$TMPDIR` (normally `$PREFIX/tmp`) for SIP logs, sockets, and temporary runtime data. It does not assume Android exposes a writable `/tmp`. If Termux temp variables are unavailable, Android falls back to `$HOME/.cache/wafflehouse-client/tmp`.
+The 5.1 engine merge deliberately keeps the native-Termux protections from the known-good 0.9 branch:
 
-## Termux SIP audio / RTP notes (Build 0.8+, retained in Build 0.9)
+- PJSIP's Android JNI GUID backend is replaced by its native `guid_simple` backend; startup also performs a GUID sanity check.
+- PortAudio is used instead of PJSIP's Android JNI/OpenSL/Oboe audio backends.
+- SIP/RTP can start with a null audio device and attach hardware once a call needs it.
+- If capture cannot open, playback/speaker-only mode is attempted without dropping the SIP/RTP session.
+- Runtime scratch paths prefer Termux's `TMPDIR`, `PREFIX/tmp`, and user cache paths instead of assuming `/tmp` exists.
+- Saved SIP passwords are not erased merely because a registration timed out or the network failed.
 
-Build 0.8 introduced the SIP/RTP decoupling from Android hardware audio; Build 0.9 retains it unchanged. PJSIP starts
-with a null sound device, so a missing microphone permission can no longer prevent
-an INVITE from being sent or RTP/RTCP sockets from being created. Once call media
-is negotiated, WaffleHouse attempts full-duplex audio. If microphone capture cannot
-open, the call remains alive and WaffleHouse attempts playback-only audio.
-
-For microphone capture, install the **Termux:API Android add-on** from the same
-source/signing family as the main Termux app, then grant its Microphone permission.
-The `pkg install termux-api` package supplies only the command-line client; it does
-not install the Android add-on APK.
-
-After installation, test the Android microphone permission path with:
+For the Android microphone/API permission check:
 
 ```sh
 wafflehouse-audio-preflight
 ```
 
-Then use `/audio-devices` and `/audio-reopen` in WaffleHouse. RTP diagnostics remain
-available through the Softphone call report/media views and include local/remote
-RTP/RTCP addresses, codec, packet counts, loss, jitter, discard, RTT and jitter
-buffer delay.
+## File downloads and Android helpers
 
-## Responsive Termux interface (Build 0.9)
+Incoming files default to `~/storage/downloads` when Termux shared storage is available. WaffleHouse-Termux also uses `termux-open-url` for browser handoff and `termux-media-player` when available for notification audio.
 
-The CLI is now sized from the live Termux PTY rather than an 80x24 assumption. It automatically reflows after phone rotation, soft-keyboard open/close, Android split-screen resizing, and tablet/external-display changes. On short screens optional chrome is removed first; the status/input rows and active conversation remain visible. Telnet/BBS sessions also receive updated NAWS dimensions when the server negotiated NAWS.
+If shared storage has not been enabled yet, run:
+
+```sh
+termux-setup-storage
+```
+
+## Source validation
+
+The release contains a static parity/regression gate:
+
+```sh
+./tests/run-termux-tests.sh
+./tests/termux_sip_password_persistence_test.sh
+./tests/termux_sip_runtime_test.sh
+```
+
+These checks verify the 5.1 engine markers, Termux-specific SIP fixes, BBS geometry logic, responsive TUI behavior, and installer wiring. A real Android/Termux compile and live network/audio test still needs to be performed on an actual Termux installation because the release-preparation environment is not an Android/Termux runtime.

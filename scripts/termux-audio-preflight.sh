@@ -14,7 +14,7 @@ if ! command -v termux-microphone-record >/dev/null 2>&1; then
 fi
 
 cat <<'MSG'
-WaffleHouse-Client-Termux audio preflight
+WaffleHouse-Termux 1.0 audio preflight
 ----------------------------------------
 This test asks Android for one second of microphone access. If Android displays
 an audio permission dialog, choose Allow while using the app.

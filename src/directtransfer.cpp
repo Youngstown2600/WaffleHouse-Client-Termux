@@ -409,7 +409,7 @@ void CpxDirectTransferManager::pumpOutgoing(const QString &transferId)
 {
     OutgoingSession *session = m_outgoing.value(transferId, nullptr);
     if (!session || !session->socket || !session->streamReady
-        || session->cancelled || session->finished || session->finalQueued) return;
+        || session->cancelled || session->finished) return;
 
     while (session->socket->bytesToWrite() < SocketHighWaterBytes && !session->finalQueued) {
         QByteArray plain;

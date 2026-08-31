@@ -12,12 +12,15 @@
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantMap>
 
 #include <memory>
 
 class ChatBackend;
 class SipController;
 class MediaController;
+
+class OscarVoiceSession;
 
 class TerminalUi : public QObject {
     Q_OBJECT
@@ -44,12 +47,18 @@ private:
         QString endpoint;
         QSet<QString> buddies;
         QSet<QString> onlineBuddies;
+        QHash<QString, QVariantMap> oscarBuddyPresence;
         QHash<QString, QString> targetNames;
         QHash<QString, QString> discoveredRooms;
         QString presenceState = QStringLiteral("ONLINE");
         QString presenceMessage;
         quint32 idleSeconds = 0;
         QString autoPresenceState;
+        QStringList serverCapabilities;
+        QStringList serverCapabilityDetails;
+        bool aimProfileSupported = false;
+        int aimProfileMaxLength = 0;
+        QString serverCapabilitiesUpdated;
     };
 
     struct UiOptions {
@@ -61,8 +70,6 @@ private:
         bool autoReplySecure = true;
         bool showSecureFingerprints = true;
         bool autoPresenceEnabled = true;
-        int autoIdleMinutes = 5;
-        int autoAwayMinutes = 15;
         QString theme = QStringLiteral("phosphor");
     };
 
@@ -86,10 +93,7 @@ private:
     void showSplash();
     void shutdownCurses();
     void tick();
-    void syncTerminalGeometry();
-    void updateTelnetTerminalGeometry();
-    int terminalPaneColumns() const;
-    int terminalPaneRows() const;
+    void syncTermuxTerminalGeometry();
     void draw();
     void handleInput();
     void handleCharacter(uint codepoint);
@@ -169,6 +173,7 @@ private:
     void deleteConnection(ConnectionEntry *entry);
     void connectConnection(ConnectionEntry *entry);
     void disconnectConnection(ConnectionEntry *entry);
+    void applyTelnetGeometry(ConnectionEntry *entry, bool requestOuterTerminal = true);
     ConnectionEntry *connectionById(const QString &id) const;
     ConnectionEntry *selectedConnection() const;
     ConnectionEntry *selectedSipConnection() const;
@@ -233,6 +238,9 @@ private:
 
     void handleCommand(const QString &line);
     void showHelp();
+    OscarVoiceSession *ensureOscarVoiceSession();
+    void startOscarVoice(ConnectionEntry *entry, const QString &target);
+    void hangupOscarVoice(bool notifyPeer = true);
     Buffer *phoneBuffer(bool switchTo = false);
     void showPhoneMain(bool switchTo = true);
     void showPhoneCalls(bool switchTo = true);
@@ -315,6 +323,16 @@ private:
     CpxDirectTransferManager m_directTransfers;
     SipController *m_sipController = nullptr;
     MediaController *m_mediaController = nullptr;
+    OscarVoiceSession *m_oscarVoice = nullptr;
+    QString m_oscarVoiceConnectionId;
+    QString m_oscarVoicePeer;
+    QString m_oscarVoiceCookie;
+    QString m_pendingVoiceConnectionId;
+    QString m_pendingVoicePeer;
+    QString m_pendingVoiceCookie;
+    QString m_pendingVoiceAddress;
+    quint16 m_pendingVoicePort = 0;
+    int m_pendingVoiceRate = 0;
     QHash<QString, QString> m_fileTransferProfiles;
     QHash<QString, bool> m_fileTransferSecure;
     QHash<QString, int> m_fileTransferProgressShown;

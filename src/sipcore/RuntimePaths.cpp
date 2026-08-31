@@ -118,14 +118,11 @@ std::filesystem::path logPath()
 std::filesystem::path tempDir()
 {
 #ifndef _WIN32
-    // Termux does not expose the traditional Android/Linux /tmp as a writable
-    // application scratch directory. Honour TMPDIR first (Termux sets it to
-    // $PREFIX/tmp), then XDG_RUNTIME_DIR, and only use the conventional /tmp
-    // fallback on non-Android Unix hosts. If neither Termux variable is
-    // available, keep the scratch area private inside the user's cache tree.
+    // Termux does not expose traditional /tmp as the app scratch location.
+    // Honour Termux's TMPDIR first, then XDG_RUNTIME_DIR, then $PREFIX/tmp.
     auto base = absoluteEnvPath("TMPDIR");
     if (base.empty()) base = absoluteEnvPath("XDG_RUNTIME_DIR");
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(WAFFLEHOUSE_TERMUX)
     if (base.empty()) {
         const auto prefix = absoluteEnvPath("PREFIX");
         if (!prefix.empty()) base = prefix / "tmp";

@@ -5,6 +5,7 @@
 namespace trunkmonkey {
 enum class Transport { Udp, Tcp, Tls };
 enum class IdentityMode { From, Pai, Rpid, FromAndPai };
+enum class SipCompatibility { Auto, Standard, AsteriskChanSip };
 
 struct SipProfile {
     std::string name{"Default"};
@@ -22,6 +23,7 @@ struct SipProfile {
     std::string stunServer;
     Transport transport{Transport::Udp};
     IdentityMode identityMode{IdentityMode::From};
+    SipCompatibility compatibility{SipCompatibility::Auto};
     std::uint16_t localSipPort{5060};
     unsigned registrationExpires{300};
     bool useIce{false};
@@ -30,8 +32,10 @@ struct SipProfile {
 
 std::string toString(Transport v);
 std::string toString(IdentityMode v);
+std::string toString(SipCompatibility v);
 Transport transportFromString(const std::string& v);
 IdentityMode identityModeFromString(const std::string& v);
+SipCompatibility sipCompatibilityFromString(const std::string& v);
 
 class ProfileStore {
 public:

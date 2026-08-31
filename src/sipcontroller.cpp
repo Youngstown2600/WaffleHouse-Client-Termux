@@ -4,6 +4,7 @@
 #include "trunkmonkey/RuntimePaths.h"
 #include "trunkmonkey/SipEngine.h"
 #include "trunkmonkey/SipTrace.h"
+#include "core/historystore.h"
 
 #include <QDateTime>
 #include <QSettings>
@@ -115,12 +116,7 @@ bool SipController::addAccount(const QString &accountId, const SipProfile &profi
         m_profiles.insert(id, profile);
         if (!hadValidSelection) m_selectedAccountId = id;
         if (m_initialized) {
-            if (!m_engine) {
-                const QString detail = m_initializationError.isEmpty()
-                    ? QStringLiteral("SIP engine unavailable")
-                    : QStringLiteral("SIP engine unavailable: %1").arg(m_initializationError);
-                throw std::runtime_error(s(detail));
-            }
+            if (!m_engine) throw std::runtime_error("SIP engine unavailable");
             if (!m_engine->started()) {
                 std::vector<std::pair<std::string,SipProfile>> list;
                 for (auto it=m_profiles.constBegin(); it!=m_profiles.constEnd(); ++it)
@@ -264,11 +260,11 @@ bool SipController::startEngine(QString *error)
     try {
         if (!m_initialized) initialize();
         if (!m_engine) {
-                const QString detail = m_initializationError.isEmpty()
-                    ? QStringLiteral("SIP engine unavailable")
-                    : QStringLiteral("SIP engine unavailable: %1").arg(m_initializationError);
-                throw std::runtime_error(s(detail));
-            }
+            const QString detail = m_initializationError.isEmpty()
+                ? QStringLiteral("SIP engine unavailable")
+                : QStringLiteral("SIP engine unavailable: %1").arg(m_initializationError);
+            throw std::runtime_error(s(detail));
+        }
         if (!m_engine->started()) {
             std::vector<std::pair<std::string,SipProfile>> list;
             for (auto it=m_profiles.constBegin(); it!=m_profiles.constEnd(); ++it) list.push_back({s(it.key()), it.value()});
@@ -339,10 +335,9 @@ bool SipController::disconnectAccount(const QString &accountId, QString *error)
         appendActivity(QStringLiteral("SIP account offline: %1").arg(id));
         emit accountStateChanged(id); emit stateChanged(); return true;
     } catch (const pj::Error &e) {
-        // pjsua_acc_set_registration(false) may return PJ_EINVALIDOP after a
-        // registration transaction has already timed out.  Disconnect is
-        // idempotent from the user's perspective: the account is already
-        // offline, so do not surface a scary secondary error.
+        // A timed-out registration can already be offline when the user asks to
+        // disconnect it. Treat PJ_EINVALIDOP as an idempotent success instead of
+        // turning a harmless cleanup action into a second error.
         if (e.status == PJ_EINVALIDOP) {
             appendActivity(QStringLiteral("SIP account already offline: %1").arg(id));
             emit accountStateChanged(id); emit stateChanged();
@@ -426,14 +421,42 @@ SIP_ACTION(setForeground,m_engine->setForeground(id),"Foreground call set to %1"
 #undef SIP_ACTION
 
 bool SipController::sendDtmf(int id,const QString&digits,QString*error){if(!m_engine){if(error)*error=QStringLiteral("SIP engine unavailable.");return false;}try{m_engine->sendDtmf(id,s(digits));appendActivity(QStringLiteral("DTMF %1 -> call %2").arg(digits).arg(id));return true;}catch(const std::exception&e){if(error)*error=QString::fromLocal8Bit(e.what());return false;}}
+bool SipController::blindTransfer(int id,const QString&destination,QString*error){
+    if(!m_engine){if(error)*error=QStringLiteral("SIP engine unavailable.");return false;}
+    if(destination.trimmed().isEmpty()){if(error)*error=QStringLiteral("Transfer destination is required.");return false;}
+    try{m_engine->blindTransfer(id,s(destination.trimmed()));appendActivity(QStringLiteral("Blind transfer: call %1 -> %2").arg(id).arg(destination.trimmed()));emit callsChanged();return true;}
+    catch(const pj::Error&e){if(error)*error=pjsipErrorText(e);return false;}
+    catch(const std::exception&e){if(error)*error=QString::fromLocal8Bit(e.what());return false;}
+}
+bool SipController::attendedTransfer(int id,int consultationCallId,QString*error){
+    if(!m_engine){if(error)*error=QStringLiteral("SIP engine unavailable.");return false;}
+    try{m_engine->attendedTransfer(id,consultationCallId);appendActivity(QStringLiteral("Attended transfer: call %1 replaced by consultation call %2").arg(id).arg(consultationCallId));emit callsChanged();return true;}
+    catch(const pj::Error&e){if(error)*error=pjsipErrorText(e);return false;}
+    catch(const std::exception&e){if(error)*error=QString::fromLocal8Bit(e.what());return false;}
+}
 bool SipController::setMuted(int id,bool muted,QString*error){if(!m_engine){if(error)*error=QStringLiteral("SIP engine unavailable.");return false;}try{m_engine->setMicrophoneMuted(id,muted);appendActivity(QStringLiteral("Call %1 microphone %2").arg(id).arg(muted?QStringLiteral("muted"):QStringLiteral("unmuted")));emit callsChanged();return true;}catch(const std::exception&e){if(error)*error=QString::fromLocal8Bit(e.what());return false;}}
 
 std::vector<CallSnapshot> SipController::calls() const { if(!m_engine||!m_engine->started())return{};try{return m_engine->calls();}catch(...){return{};} }
 CallSnapshot SipController::call(int id,bool*ok)const{if(ok)*ok=false;if(!m_engine)return{};try{auto r=m_engine->callSnapshot(id);if(ok)*ok=true;return r;}catch(...){return{};}}
 
 QString SipController::formatTraceLine(const trunkmonkey::SipTraceEntry&e){const QString when=QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(e.timestampMs)).toString(QStringLiteral("HH:mm:ss.zzz"));const QString dir=e.direction==SipDirection::Sent?QStringLiteral(">>"):QStringLiteral("<<");QString label=q(e.label);if(label.isEmpty())label=q(e.method);return QStringLiteral("%1  %2  call=%3  %4").arg(when,dir).arg(e.callId).arg(label);}
-QString SipController::sipLogText(int id)const{if(!m_engine)return QStringLiteral("SIP engine is not running.");struct Item{std::uint64_t ts;QString text;QString raw;};std::vector<Item>items;if(id<0){try{for(const auto&e:m_engine->recentSipTrace())items.push_back({e.timestampMs,formatTraceLine(e),q(e.rawMessage)});}catch(...){}}else{for(const auto&c:calls()){if(c.id!=id)continue;try{for(const auto&e:m_engine->sipTrace(c.id))items.push_back({e.timestampMs,formatTraceLine(e),q(e.rawMessage)});}catch(...){}}}std::sort(items.begin(),items.end(),[](const Item&a,const Item&b){return a.ts<b.ts;});QStringList out;for(const auto&i:items){out<<i.text;if(!i.raw.trimmed().isEmpty())for(const QString&line:i.raw.trimmed().split('\n'))out<<QStringLiteral("    %1").arg(line.trimmed());out<<QString();}return out.isEmpty()?QStringLiteral("No SIP messages observed in this session."):out.join('\n');}
+QString SipController::sipLogText(int id)const{if(!m_engine)return QStringLiteral("SIP engine is not running.");struct Item{std::uint64_t ts;QString text;QString raw;};std::vector<Item>items;for(const auto&c:calls()){if(id>=0&&c.id!=id)continue;try{for(const auto&e:m_engine->sipTrace(c.id))items.push_back({e.timestampMs,formatTraceLine(e),q(e.rawMessage)});}catch(...){}}std::sort(items.begin(),items.end(),[](const Item&a,const Item&b){return a.ts<b.ts;});QStringList out;for(const auto&i:items){out<<i.text;if(!i.raw.trimmed().isEmpty())for(const QString&line:i.raw.trimmed().split('\n'))out<<QStringLiteral("    %1").arg(line.trimmed());out<<QString();}return out.isEmpty()?QStringLiteral("No SIP messages observed for calls in this session."):out.join('\n');}
 QString SipController::ladderText(int id)const{if(!m_engine||id<0)return QStringLiteral("Select a call to display its SIP ladder.");try{return q(m_engine->sipLadder(id));}catch(const std::exception&e){return QStringLiteral("Unable to build SIP ladder: %1").arg(QString::fromLocal8Bit(e.what()));}}
+QString SipController::callDiagnosticsText(int id)const{
+    if(!m_engine||id<0)return QStringLiteral("Select a call to display live diagnostics.");
+    try{return q(m_engine->callReport(id));}
+    catch(const std::exception&e){return QStringLiteral("Unable to build call diagnostics: %1").arg(QString::fromLocal8Bit(e.what()));}
+}
+
+int SipController::foregroundOrOnlyLiveCall()const{
+    int only=-1; int live=0;
+    for(const auto& c:calls()){
+        if(c.disconnected) continue;
+        ++live; only=c.id;
+        if(c.foreground) return c.id;
+    }
+    return live==1?only:-1;
+}
 
 QString SipController::audioSummary()const{if(!m_engine||!m_engine->started())return QStringLiteral("Audio: SIP endpoint stopped");try{const auto a=m_engine->audioStatus();return QStringLiteral("Capture [%1] %2 | Playback [%3] %4 | Auto-switch %5 | Route %6").arg(a.captureId).arg(q(a.captureDevice)).arg(a.playbackId).arg(q(a.playbackDevice)).arg(a.autoSwitchEnabled?QStringLiteral("ON"):QStringLiteral("OFF")).arg(q(a.systemRoute));}catch(...){return QStringLiteral("Audio status unavailable");}}
 QString SipController::audioDevicesText()const{if(!m_engine||!m_engine->started())return QStringLiteral("Start the SIP endpoint first.");try{QStringList lines;for(const auto&d:m_engine->audioDevices())lines<<QStringLiteral("[%1] %2 / %3  inputs=%4 outputs=%5").arg(d.id).arg(q(d.driver),q(d.name)).arg(d.inputCount).arg(d.outputCount);return lines.join('\n');}catch(const std::exception&e){return QString::fromLocal8Bit(e.what());}}
@@ -462,6 +485,22 @@ void SipController::poll()
         const QString state=q(c.accountId)+QStringLiteral("|")+q(c.state)+QStringLiteral("|")+QString::number(c.connected)+QStringLiteral("|")+QString::number(c.disconnected)+QStringLiteral("|")+QString::number(c.microphoneMuted);
         if(!m_lastCallStates.contains(c.id)||m_lastCallStates.value(c.id)!=state){m_lastCallStates[c.id]=state;changed=true;appendActivity(QStringLiteral("[%1] Call %2 %3 %4 — %5").arg(q(c.accountName).isEmpty()?q(c.accountId):q(c.accountName)).arg(c.id).arg(directionName(c.direction),q(c.remoteUri),q(c.state)));}
         if(!m_seenCalls.contains(c.id)){m_seenCalls.insert(c.id);changed=true;if(c.direction==CallDirection::Incoming&&!c.disconnected)emit incomingCall(q(c.accountId),c.id,q(c.remoteUri));}
+        if(c.disconnected && !m_historyLoggedCalls.contains(c.id)){
+            m_historyLoggedCalls.insert(c.id);
+            const double denom=static_cast<double>(c.rtpRxPackets+c.rtpRxLoss);
+            const double loss=denom>0.0?(100.0*static_cast<double>(c.rtpRxLoss)/denom):0.0;
+            HistoryRecord record;
+            record.timestamp=QDateTime::currentDateTimeUtc();
+            record.protocol=QStringLiteral("SIP");
+            record.accountId=q(c.accountId);
+            record.kind=QStringLiteral("call");
+            record.target=q(c.remoteUri);
+            record.direction=c.direction==CallDirection::Incoming?QStringLiteral("in"):QStringLiteral("out");
+            record.text=QStringLiteral("state=%1 code=%2 codec=%3 loss=%4% jitter=%5ms rtt=%6ms MOS=%7")
+                .arg(q(c.state)).arg(c.lastStatusCode).arg(q(c.codecName))
+                .arg(loss,0,'f',2).arg(c.rxJitterMs,0,'f',1).arg(c.rttMs,0,'f',1).arg(c.estimatedMos,0,'f',2);
+            HistoryStore::append(record);
+        }
         try{traceCount+=static_cast<int>(m_engine->sipTrace(c.id).size());}catch(...){}
     }
     if(changed)emit callsChanged();

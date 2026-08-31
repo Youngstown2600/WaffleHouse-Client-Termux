@@ -28,9 +28,24 @@ struct ConnectionSettings {
     // QSettings does not encrypt this value; the UI makes that clear before opt-in.
     bool savePassword = false;
 
-    // AIM/OSCAR-specific redirect overrides.
+    // AIM/OSCAR network compatibility profile. "nina" reproduces the
+    // stock-AIM behavior used after NINAPatcher redirects AIM to NINA.
+    // "auto" also enables that profile automatically for *.nina.chat hosts.
+    QString networkProfile = QStringLiteral("auto");
+    QString arsHost;
+    quint16 arsPort = 5190;
+
+    // AIM/OSCAR-specific BOS redirect overrides and diagnostic mode.
+    // Secondary OSCAR service redirects always follow the server-advertised host.
     QString redirectHost;
     quint16 redirectPort = 0;
+    // off = no OSCAR diagnostics; login = credential-safe login/bootstrap audit;
+    // full = login audit plus credential-safe FLAP/SNAC wire tracing.
+    QString oscarDebugMode = QStringLiteral("off");
+    // Locally retained AIM profile. Some private/revival OSCAR servers keep
+    // LOCATE profile data only for the current BOS session, so replay it after
+    // each successful login when the user has explicitly saved one.
+    QString oscarProfile;
 
     // IRC-specific settings.
     QString realName = appDefaultRealName();
@@ -43,6 +58,9 @@ struct ConnectionSettings {
     // Telnet/MUD/BBS settings. username is used as an optional profile/session
     // label for Telnet connections rather than being transmitted automatically.
     QString telnetTerminalType = QStringLiteral("ANSI");
+    int telnetColumns = 80;
+    int telnetRows = 24;
+    bool telnetAutoFit = true;
 
     // SIP/VoIP settings. SIP is a first-class saved WaffleHouse connection type.
     // username/password/savePassword are shared with the normal connection model.
@@ -57,6 +75,7 @@ struct ConnectionSettings {
     QString sipStunServer;
     QString sipTransport = QStringLiteral("udp");
     QString sipIdentityMode = QStringLiteral("from");
+    QString sipCompatibility = QStringLiteral("auto");
     quint16 sipLocalPort = 5060;
     quint32 sipRegistrationExpires = 300;
     bool sipUseIce = false;

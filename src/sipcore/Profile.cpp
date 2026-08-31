@@ -85,6 +85,15 @@ std::string toString(IdentityMode v)
     switch (v) { case IdentityMode::From: return "from"; case IdentityMode::Pai: return "pai"; case IdentityMode::Rpid: return "rpid"; case IdentityMode::FromAndPai: return "from+pai"; }
     return "from";
 }
+std::string toString(SipCompatibility v)
+{
+    switch (v) {
+        case SipCompatibility::Auto: return "auto";
+        case SipCompatibility::Standard: return "standard";
+        case SipCompatibility::AsteriskChanSip: return "asterisk-chan_sip";
+    }
+    return "auto";
+}
 Transport transportFromString(const std::string& value)
 {
     const auto v=lower(trim(value));
@@ -101,6 +110,16 @@ IdentityMode identityModeFromString(const std::string& value)
     if(v=="rpid") return IdentityMode::Rpid;
     if(v=="from+pai" || v=="frompai") return IdentityMode::FromAndPai;
     throw std::runtime_error("Invalid identity_mode: " + value + " (expected from, pai, rpid, or from+pai)");
+}
+SipCompatibility sipCompatibilityFromString(const std::string& value)
+{
+    auto v=lower(trim(value));
+    std::replace(v.begin(), v.end(), ' ', '-');
+    if(v.empty() || v=="auto") return SipCompatibility::Auto;
+    if(v=="standard" || v=="rfc3261" || v=="modern" || v=="pjsip" || v=="chan_pjsip" || v=="chan-pjsip" || v=="asterisk-pjsip") return SipCompatibility::Standard;
+    if(v=="asterisk-chan_sip" || v=="asterisk-chansip" || v=="chan_sip" || v=="chansip" || v=="legacy-asterisk")
+        return SipCompatibility::AsteriskChanSip;
+    throw std::runtime_error("Invalid SIP server type: " + value + " (expected auto, pjsip/chan_pjsip, or chan_sip)");
 }
 
 SipProfile ProfileStore::defaults()
@@ -130,6 +149,7 @@ SipProfile ProfileStore::loadDraft(const std::string& path)
     p.stunServer = get("stun_server");
     p.transport = transportFromString(get("transport", "udp"));
     p.identityMode = identityModeFromString(get("identity_mode", "from"));
+    p.compatibility = sipCompatibilityFromString(get("compatibility", "auto"));
     p.localSipPort = static_cast<std::uint16_t>(parseUnsigned("local_sip_port", get("local_sip_port", "5060"), 1, 65535));
     p.registrationExpires = static_cast<unsigned>(parseUnsigned(
         "registration_expires", get("registration_expires", "300"), 1,
@@ -213,6 +233,7 @@ void ProfileStore::save(const SipProfile& p, const std::string& path)
             << "stun_server=" << p.stunServer << "\n"
             << "transport=" << toString(p.transport) << "\n"
             << "identity_mode=" << toString(p.identityMode) << "\n"
+            << "compatibility=" << toString(p.compatibility) << "\n"
             << "local_sip_port=" << p.localSipPort << "\n"
             << "registration_expires=" << p.registrationExpires << "\n"
             << "use_ice=" << (p.useIce ? "true" : "false") << "\n"

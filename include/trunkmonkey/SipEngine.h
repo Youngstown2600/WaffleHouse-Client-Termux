@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 namespace trunkmonkey {
-class CallSession; class Logger; class SipAccount; class SipWireMonitor;
+class CallSession; class Logger; class SipAccount; class SipWireMonitor; class RemoteSipAudioBridge;
 struct AudioDeviceInfo { int id{-1}; std::string driver; std::string name; unsigned inputCount{0}; unsigned outputCount{0}; };
 struct AudioStatusInfo {
     int captureId{-1};
@@ -70,6 +70,8 @@ public:
     int makeCall(const std::string& accountId,const std::string& destination,const std::string& callerId={},bool makeForeground=true,CallPurpose purpose=CallPurpose::Phone,bool applyDialPrefix=true);
     void answer(int id); void reject(int id,int code=603); void hangup(int id); void hangupAll();
     void hold(int id); void resume(int id); void sendDtmf(int id,const std::string& digits,unsigned durationMs=0);
+    void blindTransfer(int id,const std::string& destination);
+    void attendedTransfer(int id,int consultationCallId);
     void setMicrophoneMuted(int id,bool muted);
     std::vector<AudioDeviceInfo> audioDevices()const;
     int activeCaptureDevice()const; int activePlaybackDevice()const;
@@ -90,7 +92,6 @@ public:
     void exportCallReport(int id,const std::string& path)const;
 
     std::vector<SipTraceEntry> sipTrace(int id)const;
-    std::vector<SipTraceEntry> recentSipTrace()const;
     void startSipTraceFile(int id,const std::string& path);
     void stopSipTraceFile(int id);
     bool sipTraceRecording(int id)const;
@@ -103,6 +104,13 @@ public:
     void onIncomingCall(const std::string& accountId,int id);
     void onRegistrationState(const std::string& accountId,bool active,int code,const std::string& reason);
     void onSipMessage(SipTraceEntry entry);
+
+    // Audio routing used by CallSession. In a normal desktop process these
+    // resolve to the PJSIP capture/playback devices. In SSH companion mode
+    // they resolve to custom PCM ports backed by the encrypted SSH tunnel.
+    pj::AudioMedia& playbackMedia();
+    pj::AudioMedia& captureMedia();
+    bool remoteAudioActive() const noexcept;
 private:
     struct ArchivedCall {
         CallSnapshot snapshot;
@@ -144,6 +152,7 @@ private:
     SipProfile profile_; // default/legacy profile
     std::string defaultAccountId_;
     std::unique_ptr<pj::Endpoint> endpoint_;
+    std::unique_ptr<RemoteSipAudioBridge> remoteAudioBridge_;
     std::map<std::string,AccountState> accounts_;
     std::map<std::string,pj::TransportId> transports_;
     std::unique_ptr<SipWireMonitor> sipMonitor_;
@@ -151,7 +160,6 @@ private:
     std::map<int,ArchivedCall> archivedCalls_;
     std::map<std::string,int> callIdIndex_;
     std::map<std::string,std::vector<SipTraceEntry>> pendingSip_;
-    std::vector<SipTraceEntry> recentSip_;
     int foregroundId_{-1};
     std::string lastSystemAudioRoute_;
     std::uint64_t lastSystemAudioPollMs_{0};

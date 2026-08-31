@@ -171,6 +171,176 @@ QByteArray firstTlv(const QList<Tlv> &items, quint16 type)
     return {};
 }
 
+QString authErrorDescription(quint16 code)
+{
+    switch (code) {
+    case 0x0001: return QStringLiteral("invalid screen name or password");
+    case 0x0002: return QStringLiteral("service temporarily unavailable");
+    case 0x0003: return QStringLiteral("authorization failed");
+    case 0x0004: return QStringLiteral("incorrect screen name or password");
+    case 0x0005: return QStringLiteral("screen name/password mismatch");
+    case 0x0006: return QStringLiteral("authorizer rejected client input");
+    case 0x0007: return QStringLiteral("invalid account");
+    case 0x0008: return QStringLiteral("deleted account");
+    case 0x0009: return QStringLiteral("expired account");
+    case 0x000A: return QStringLiteral("authorization database unavailable");
+    case 0x000B: return QStringLiteral("authorization resolver unavailable");
+    case 0x000C: return QStringLiteral("invalid authorization database fields");
+    case 0x000D: return QStringLiteral("bad authorization database status");
+    case 0x000E: return QStringLiteral("bad authorization resolver status");
+    case 0x000F: return QStringLiteral("authorization server internal error");
+    case 0x0010: return QStringLiteral("service temporarily offline");
+    case 0x0011: return QStringLiteral("suspended account");
+    case 0x0016: return QStringLiteral("maximum users from this IP reached");
+    case 0x0017: return QStringLiteral("maximum users from this IP reached (reservation)");
+    case 0x0018: return QStringLiteral("reservation rate limit exceeded; retry later");
+    case 0x0019: return QStringLiteral("account warning level too high");
+    case 0x001A: return QStringLiteral("authorization reservation timed out");
+    case 0x001B: return QStringLiteral("client version too old; upgrade required");
+    case 0x001C: return QStringLiteral("client version old; upgrade recommended");
+    case 0x001D: return QStringLiteral("rate limit exceeded; retry later");
+    case 0x001E: return QStringLiteral("registration temporarily unavailable");
+    case 0x0020: return QStringLiteral("invalid SecurID");
+    case 0x0022: return QStringLiteral("account suspended because of age restriction");
+    default: return QStringLiteral("unknown authorization error");
+    }
+}
+
+namespace {
+
+bool looksPrintable(const QByteArray &value)
+{
+    if (value.isEmpty()) return true;
+    for (const unsigned char c : value) {
+        if (c == '\r' || c == '\n' || c == '\t') continue;
+        if (c < 0x20 || c > 0x7e) return false;
+    }
+    return true;
+}
+
+QString debugTlvSummary(const QByteArray &data,
+                        bool redactPasswordHash,
+                        bool redactCookie,
+                        bool redactAdminPasswords = false)
+{
+    try {
+        qsizetype offset = 0;
+        const QList<Tlv> items = parseTlvs(data, offset);
+        QStringList parts;
+        for (const Tlv &item : items) {
+            const bool secret = (redactPasswordHash && item.type == TLV_PASSWORD_HASH)
+                || (redactCookie && item.type == TLV_AUTH_COOKIE)
+                || (redactAdminPasswords && (item.type == ADMIN_TLV_NEW_PASSWORD
+                                               || item.type == ADMIN_TLV_OLD_PASSWORD));
+            QString value;
+            if (secret) {
+                value = QStringLiteral("<redacted:%1 bytes>").arg(item.value.size());
+            } else if (item.type == TLV_LOGIN_ERROR && item.value.size() >= 2) {
+                const quint16 code = readU16(item.value, 0);
+                value = QStringLiteral("0x%1 (%2)")
+                            .arg(code, 4, 16, QLatin1Char('0'))
+                            .arg(authErrorDescription(code));
+            } else if (looksPrintable(item.value)) {
+                value = QStringLiteral("\"%1\"").arg(QString::fromUtf8(item.value));
+            } else {
+                value = QString::fromLatin1(item.value.toHex());
+            }
+            parts << QStringLiteral("0x%1[%2]=%3")
+                         .arg(item.type, 4, 16, QLatin1Char('0'))
+                         .arg(item.value.size())
+                         .arg(value);
+        }
+        if (offset != data.size()) {
+            parts << QStringLiteral("trailing=%1").arg(QString::fromLatin1(data.mid(offset).toHex()));
+        }
+        return QStringLiteral("tlvs={%1}").arg(parts.join(QStringLiteral(", ")));
+    } catch (const std::exception &) {
+        return QStringLiteral("hex=%1").arg(QString::fromLatin1(data.toHex()));
+    }
+}
+
+QString safeSnacBodyForLog(quint16 family,
+                           quint16 subtype,
+                           const QByteArray &body,
+                           bool outgoing)
+{
+    if (family == FAM_BUCP && subtype == BUCP_CHALLENGE_RESPONSE && !outgoing) {
+        if (body.size() >= 2) {
+            const quint16 length = readU16(body, 0);
+            return QStringLiteral("challenge-key=<redacted:%1 bytes> raw-len=%2")
+                .arg(length).arg(body.size());
+        }
+        return QStringLiteral("challenge-key=<truncated>");
+    }
+    if (family == FAM_BUCP && subtype == BUCP_LOGIN_REQUEST && outgoing)
+        return debugTlvSummary(body, true, false);
+    if (family == FAM_BUCP && subtype == BUCP_LOGIN_RESPONSE && !outgoing)
+        return debugTlvSummary(body, false, true);
+    if (family == FAM_BUCP && subtype == BUCP_CHALLENGE_REQUEST && outgoing)
+        return debugTlvSummary(body, false, false);
+    if (family == FAM_OSERVICE && subtype == OS_SERVICE_RESPONSE && !outgoing)
+        return debugTlvSummary(body, false, true);
+    if (family == FAM_ADMIN && subtype == ADMIN_INFO_CHANGE_REQUEST && outgoing)
+        return debugTlvSummary(body, false, false, true);
+    return QStringLiteral("hex=%1").arg(QString::fromLatin1(body.toHex()));
+}
+
+QString flapChannelName(quint8 channel)
+{
+    switch (channel) {
+    case FLAP_SIGNON: return QStringLiteral("SIGNON");
+    case FLAP_DATA: return QStringLiteral("DATA");
+    case FLAP_ERROR: return QStringLiteral("ERROR");
+    case FLAP_SIGNOFF: return QStringLiteral("SIGNOFF");
+    case FLAP_KEEPALIVE: return QStringLiteral("KEEPALIVE");
+    default: return QStringLiteral("UNKNOWN");
+    }
+}
+
+QString signoffReason(const QByteArray &payload)
+{
+    if (payload.isEmpty()) return {};
+    try {
+        qsizetype offset = 0;
+        const QList<Tlv> items = parseTlvs(payload, offset);
+        const QByteArray error = firstTlv(items, TLV_LOGIN_ERROR);
+        const QByteArray url = firstTlv(items, TLV_ERROR_URL);
+        QStringList parts;
+        if (error.size() >= 2) {
+            const quint16 code = readU16(error, 0);
+            parts << QStringLiteral("OSCAR auth error 0x%1 (%2)")
+                         .arg(code, 4, 16, QLatin1Char('0'))
+                         .arg(authErrorDescription(code));
+        }
+        if (!url.isEmpty()) parts << QStringLiteral("url=%1").arg(QString::fromUtf8(url));
+        if (!parts.isEmpty()) return parts.join(QStringLiteral("; "));
+        return debugTlvSummary(payload, false, true);
+    } catch (const std::exception &) {
+        return QStringLiteral("payload=%1").arg(QString::fromLatin1(payload.toHex()));
+    }
+}
+
+QString safeFlapPayloadForLog(quint8 channel, const QByteArray &payload)
+{
+    if (payload.isEmpty()) return QStringLiteral("payload=<empty>");
+    if (channel == FLAP_DATA) return QStringLiteral("payload=<SNAC decoded separately>");
+    if (channel == FLAP_SIGNON) {
+        if (payload.size() < 4) return QStringLiteral("payload=<truncated signon:%1 bytes>").arg(payload.size());
+        const quint32 version = readU32(payload, 0);
+        const QByteArray tlvBytes = payload.mid(4);
+        if (tlvBytes.isEmpty()) return QStringLiteral("version=%1 tlvs={}").arg(version);
+        return QStringLiteral("version=%1 %2").arg(version).arg(debugTlvSummary(tlvBytes, false, true));
+    }
+    if (channel == FLAP_SIGNOFF) {
+        const QString reason = signoffReason(payload);
+        return reason.isEmpty() ? QStringLiteral("hex=%1").arg(QString::fromLatin1(payload.toHex()))
+                                : QStringLiteral("%1").arg(reason);
+    }
+    return QStringLiteral("hex=%1").arg(QString::fromLatin1(payload.toHex()));
+}
+
+} // namespace
+
 QByteArray passwordHash(const QString &password, const QByteArray &authKey)
 {
     const QByteArray inner = QCryptographicHash::hash(password.toUtf8(), QCryptographicHash::Md5);
@@ -283,7 +453,7 @@ UserInfo parseUserInfo(const QByteArray &data, qsizetype &offset)
     info.name = QString::fromUtf8(data.mid(offset, nameLength));
     offset += nameLength;
 
-    // warning level
+    info.warningLevel = readU16(data, offset);
     offset += 2;
     const quint16 count = readU16(data, offset);
     offset += 2;
@@ -371,7 +541,7 @@ void FlapConnection::connectToHost(int timeoutMs)
                                 .arg(m_socket.errorString()));
     }
     if (m_debug) {
-        log(QStringLiteral("[debug] %1: TCP connected to %2:%3")
+        log(QStringLiteral("[oscar-wire] %1: TCP connected to %2:%3")
                 .arg(m_label, m_host)
                 .arg(m_port));
     }
@@ -456,19 +626,22 @@ void FlapConnection::sendFlap(quint8 channel, const QByteArray &payload)
         throw ProtocolError(QStringLiteral("%1: FLAP payload too large").arg(m_label));
     }
 
+    const quint16 sequence = m_sequence++;
     QByteArray frame;
     appendU8(frame, 0x2a);
     appendU8(frame, channel);
-    appendU16(frame, m_sequence++);
+    appendU16(frame, sequence);
     appendU16(frame, static_cast<quint16>(payload.size()));
     frame += payload;
     writeAll(frame);
 
     if (m_debug) {
-        log(QStringLiteral("[debug] %1 => FLAP ch=%2 len=%3")
-                .arg(m_label)
-                .arg(channel)
-                .arg(payload.size()));
+        log(QStringLiteral("[oscar-wire] %1 => FLAP %2(0x%3) seq=%4 len=%5 %6")
+                .arg(m_label, flapChannelName(channel))
+                .arg(channel, 2, 16, QLatin1Char('0'))
+                .arg(sequence)
+                .arg(payload.size())
+                .arg(safeFlapPayloadForLog(channel, payload)));
     }
 }
 
@@ -507,12 +680,14 @@ quint32 FlapConnection::sendSnac(quint16 family,
     sendFlap(FLAP_DATA, payload);
 
     if (m_debug) {
-        log(QStringLiteral("[debug] %1 => SNAC %2/%3 req=%4 body=%5")
+        log(QStringLiteral("[oscar-wire] %1 => SNAC %2/%3 flags=0x%4 req=%5 len=%6 %7")
                 .arg(m_label)
                 .arg(family, 4, 16, QLatin1Char('0'))
                 .arg(subtype, 4, 16, QLatin1Char('0'))
+                .arg(flags, 4, 16, QLatin1Char('0'))
                 .arg(id)
-                .arg(QString::fromLatin1(body.toHex())));
+                .arg(body.size())
+                .arg(safeSnacBodyForLog(family, subtype, body, true)));
     }
     return id;
 }
@@ -531,11 +706,12 @@ FlapFrame FlapConnection::receiveFlap(int timeoutMs)
     frame.payload = readExact(length, timeoutMs);
 
     if (m_debug) {
-        log(QStringLiteral("[debug] %1 <= FLAP ch=%2 seq=%3 len=%4")
-                .arg(m_label)
-                .arg(frame.channel)
+        log(QStringLiteral("[oscar-wire] %1 <= FLAP %2(0x%3) seq=%4 len=%5 %6")
+                .arg(m_label, flapChannelName(frame.channel))
+                .arg(frame.channel, 2, 16, QLatin1Char('0'))
                 .arg(frame.sequence)
-                .arg(frame.payload.size()));
+                .arg(frame.payload.size())
+                .arg(safeFlapPayloadForLog(frame.channel, frame.payload)));
     }
     return frame;
 }
@@ -548,7 +724,12 @@ Snac FlapConnection::receiveSnac(int timeoutMs)
             continue;
         }
         if (frame.channel == FLAP_SIGNOFF) {
-            throw ProtocolError(QStringLiteral("%1: server signed off").arg(m_label));
+            const QString reason = signoffReason(frame.payload);
+            if (m_debug && !reason.isEmpty())
+                log(QStringLiteral("[oscar-wire] %1 <= SIGNOFF %2").arg(m_label, reason));
+            throw ProtocolError(reason.isEmpty()
+                ? QStringLiteral("%1: server signed off").arg(m_label)
+                : QStringLiteral("%1: server signed off: %2").arg(m_label, reason));
         }
         if (frame.channel != FLAP_DATA) {
             continue;
@@ -563,6 +744,7 @@ Snac FlapConnection::receiveSnac(int timeoutMs)
         snac.flags = readU16(frame.payload, 4);
         snac.requestId = readU32(frame.payload, 6);
         snac.body = frame.payload.mid(10);
+        QByteArray extendedInfo;
 
         if (snac.flags & SNAC_EXTENDED_INFO) {
             if (snac.body.size() < 2) {
@@ -572,16 +754,20 @@ Snac FlapConnection::receiveSnac(int timeoutMs)
             if (snac.body.size() < 2 + extLength) {
                 throw ProtocolError(QStringLiteral("truncated extended SNAC block"));
             }
+            extendedInfo = snac.body.left(2 + extLength);
             snac.body = snac.body.mid(2 + extLength);
         }
 
         if (m_debug) {
-            log(QStringLiteral("[debug] %1 <= SNAC %2/%3 req=%4 body=%5")
+            log(QStringLiteral("[oscar-wire] %1 <= SNAC %2/%3 flags=0x%4 req=%5 len=%6 ext=%7 %8")
                     .arg(m_label)
                     .arg(snac.family, 4, 16, QLatin1Char('0'))
                     .arg(snac.subtype, 4, 16, QLatin1Char('0'))
+                    .arg(snac.flags, 4, 16, QLatin1Char('0'))
                     .arg(snac.requestId)
-                    .arg(QString::fromLatin1(snac.body.toHex())));
+                    .arg(snac.body.size())
+                    .arg(extendedInfo.isEmpty() ? QStringLiteral("<none>") : QString::fromLatin1(extendedInfo.toHex()))
+                    .arg(safeSnacBodyForLog(snac.family, snac.subtype, snac.body, false)));
         }
         return snac;
     }

@@ -179,7 +179,9 @@ QString NotificationManager::resolveBuiltin(const QString &name)
     QStringList candidates;
     const QString appDir = QCoreApplication::applicationDirPath();
     candidates << QDir(appDir).filePath(QStringLiteral("sounds/%1").arg(name));
+    candidates << QDir(appDir).filePath(QStringLiteral("../Resources/sounds/%1").arg(name));
     candidates << QDir(appDir).filePath(QStringLiteral("../share/wafflehouse-client/sounds/%1").arg(name));
+    candidates << QDir(appDir).filePath(QStringLiteral("../share/wafflehouse-termux/sounds/%1").arg(name));
     candidates << QDir(appDir).filePath(QStringLiteral("../share/WaffleHouseClient/sounds/%1").arg(name));
     const QString sourceDir = QString::fromUtf8(WAFFLEHOUSE_SOURCE_SOUND_DIR);
     if (!sourceDir.isEmpty()) candidates << QDir(sourceDir).filePath(name);

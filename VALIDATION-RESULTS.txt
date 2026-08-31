@@ -1,0 +1,26 @@
+WaffleHouse-Termux 1.0 validation results
+=========================================
+
+Source/parity regression gate: PASS (48 passed, 0 failed)
+SIP saved-password + timeout-disconnect regression: PASS
+Native Termux SIP runtime/JNI-isolation regression: PASS
+Shell syntax (builder/updater/tests/scripts): PASS
+C/C++ lexical delimiter sanity: PASS across 70 source/header files
+
+Validated merge invariants include:
+- WaffleHouse-Client 5.1 OSCAR/NINA, native presence/idle/debug, voice, IRC,
+  unified contacts/history/capabilities, current SIP compatibility/transfer
+  features, media, secure rooms, and transfer plumbing.
+- Native Termux PJSIP 2.17 GUID/audio/runtime-path protections retained.
+- Exact Telnet/BBS profile geometry plus live Termux viewport detection,
+  responsive rendering, and live NAWS updates.
+- WaffleHouse-Termux 1.0 branding, executable, updater, and compatibility alias.
+
+Environment limitation
+----------------------
+The release-preparation container does not contain Termux's Qt 6, ncursesw,
+libsodium, or PJSIP 2.17 development packages and is not Android. Therefore a
+real binary compile and live Android network/audio smoke test were not possible
+here. The final compile/runtime validation should be run on the target device
+with ./build.sh; the builder installs/validates the Termux dependencies and
+runs these regression gates before compilation.

@@ -131,6 +131,9 @@ void TelnetBackend::setTerminalSize(int columns, int rows)
     const bool changed = newColumns != m_columns.load() || newRows != m_rows.load();
     m_columns = newColumns;
     m_rows = newRows;
+    // Once the peer has negotiated NAWS, push live viewport changes instead of
+    // waiting for a reconnect. This is important on Termux when font size, the
+    // soft keyboard, or device rotation changes the number of visible cells.
     if (changed && m_thread) enqueue({CommandType::WindowSize, {}, {}});
 }
 

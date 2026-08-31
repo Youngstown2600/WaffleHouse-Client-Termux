@@ -32,12 +32,19 @@ public:
     void addBuddy(const QString &name) override;
     void removeBuddy(const QString &name) override;
     void requestClientVersion(const QString &target);
+    void requestWhois(const QString &target);
+    void refreshServerCapabilities();
 
     // Shared IRC slash-command parser used by both the Qt GUI and ncurses CLI.
     // Returns true only when INPUT is a recognized IRC command. Unknown slash
     // text intentionally returns false so the caller can send it as chat text.
     bool handleSlashCommand(const QString &contextTarget, const QString &input);
     static QStringList slashCommands();
+
+signals:
+    void serverCapabilitiesChanged(const QStringList &ircv3Capabilities,
+                                   const QStringList &isupportTokens);
+    void whoisReply(const QString &nick, const QString &line, bool complete);
 
 private:
     enum class CommandType {
@@ -80,6 +87,7 @@ private:
     void addMembers(const QString &room, const QStringList &names);
     void removeMembers(const QString &room, const QStringList &names);
     void replaceMembers(const QString &room, const QStringList &names);
+    void emitServerCapabilities();
 
     QThread *m_thread = nullptr;
     QMutex m_commandMutex;
@@ -91,4 +99,6 @@ private:
     QHash<QString, QSet<QString>> m_pendingNames;
     QSet<QString> m_watchBuddies;
     QSet<QString> m_onlineWatchBuddies;
+    QSet<QString> m_ircv3Capabilities;
+    QHash<QString, QString> m_isupportTokens;
 };

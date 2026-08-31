@@ -1,14 +1,15 @@
 #include "platforminfo.h"
 
-#ifdef WAFFLEHOUSE_TERMUX
-#define WAFFLEHOUSE_TERMUX_PLATFORM 1
-#endif
-
 #include <QProcessEnvironment>
 #include <QSysInfo>
 #include <QStringList>
+#include <cstdio>
 
+#if defined(Q_OS_WIN)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 QString firstEnvironmentValue(const QProcessEnvironment &env,
@@ -29,6 +30,8 @@ RuntimeEnvironment RuntimeEnvironment::detect()
     info.osName = QStringLiteral("Android / Termux");
 #elif defined(Q_OS_FREEBSD)
     info.osName = QStringLiteral("FreeBSD");
+#elif defined(Q_OS_MACOS)
+    info.osName = QStringLiteral("macOS");
 #elif defined(Q_OS_LINUX)
     info.osName = QStringLiteral("Linux");
 #else
@@ -43,8 +46,21 @@ RuntimeEnvironment RuntimeEnvironment::detect()
 
     info.graphicalSession = !display.isEmpty() || !wayland.isEmpty()
         || xdgSession == QStringLiteral("x11") || xdgSession == QStringLiteral("wayland");
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+    // Cocoa and Win32 sessions do not use DISPLAY/WAYLAND_DISPLAY.
+    info.graphicalSession = true;
+#endif
+#if defined(Q_OS_WIN)
+    info.ttyAttached = ::_isatty(_fileno(stdin)) || ::_isatty(_fileno(stdout));
+#else
     info.ttyAttached = ::isatty(STDIN_FILENO) || ::isatty(STDOUT_FILENO);
+#endif
 
+#if defined(Q_OS_MACOS)
+    info.sessionType = QStringLiteral("cocoa");
+#elif defined(Q_OS_WIN)
+    info.sessionType = QStringLiteral("win32");
+#else
     if (!xdgSession.isEmpty() && xdgSession != QStringLiteral("tty")) {
         info.sessionType = xdgSession;
     } else if (!wayland.isEmpty()) {
@@ -56,6 +72,7 @@ RuntimeEnvironment RuntimeEnvironment::detect()
     } else {
         info.sessionType = QStringLiteral("headless");
     }
+#endif
 
     info.desktop = firstEnvironmentValue(env, {
         "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "DESKTOP_SESSION", "GDMSESSION"
@@ -86,9 +103,6 @@ RuntimeEnvironment RuntimeEnvironment::detect()
         info.terminal = env.value(QStringLiteral("TERM")).trimmed();
     }
 
-#if defined(WAFFLEHOUSE_TERMUX)
-    info.mode = info.ttyAttached ? QStringLiteral("Termux terminal") : QStringLiteral("Termux non-interactive");
-#else
     if (info.graphicalSession && info.ttyAttached) {
         info.mode = QStringLiteral("graphical terminal emulator");
     } else if (info.graphicalSession) {
@@ -98,7 +112,6 @@ RuntimeEnvironment RuntimeEnvironment::detect()
     } else {
         info.mode = QStringLiteral("headless/non-interactive");
     }
-#endif
 
     return info;
 }

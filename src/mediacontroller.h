@@ -12,6 +12,7 @@ class QJsonValue;
 class QSocketNotifier;
 class QProcess;
 class QTimer;
+class QElapsedTimer;
 
 class MediaController final : public QObject
 {
@@ -22,6 +23,7 @@ public:
 
     bool backendAvailable() const;
     QString backendExecutable() const;
+    bool remoteAudioMode() const { return !m_remoteSocket.isEmpty(); }
     QString backendVersion() const { return m_backendVersion; }
     QString nowPlaying() const { return m_title; }
     QString currentSource() const { return m_source; }
@@ -85,6 +87,8 @@ private slots:
     void processFinished(int exitCode);
     void refreshObservedProperties();
     void drainBackendOutput();
+    void remoteProcessFinished(int exitCode);
+    void refreshRemotePosition();
 
 private:
     bool ensureBackend();
@@ -106,14 +110,23 @@ private:
     QString buildIpcPath();
     void cleanupIpcPath();
     static bool looksLikeVideoFile(const QString &source);
+    bool startRemotePlayback(const QString &source, double startSeconds = 0.0);
+    void stopRemotePlayback(bool preserveQueue = true);
+    void restartRemoteAt(double seconds);
+    QString remoteAudioFilter() const;
 
     QProcess *m_process = nullptr;
+    QProcess *m_remoteProcess = nullptr;
     int m_ipcFd = -1;
     QSocketNotifier *m_ipcNotifier = nullptr;
     QTimer *m_connectTimer = nullptr;
     QTimer *m_refreshTimer = nullptr;
+    QTimer *m_remoteTimer = nullptr;
+    QElapsedTimer *m_remoteClock = nullptr;
 
     QString m_mpv;
+    QString m_ffmpeg;
+    QString m_remoteSocket;
     QString m_backendVersion;
     QString m_ipcPath;
     QString m_ipcDir;
@@ -136,6 +149,8 @@ private:
     bool m_shuttingDown = false;
     QString m_repeatMode = QStringLiteral("off");
     QVector<double> m_eq = QVector<double>(10, 0.0);
+    double m_remoteBasePosition = 0.0;
+    bool m_remoteStoppedByUser = false;
     qint64 m_nextRequestId = 1;
     QHash<qint64, QString> m_pendingRequests;
 };

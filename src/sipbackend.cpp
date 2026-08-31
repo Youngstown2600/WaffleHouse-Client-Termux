@@ -12,7 +12,7 @@ trunkmonkey::SipProfile sipProfileFromConnectionSettings(const ConnectionSetting
 {
     trunkmonkey::SipProfile p;
     p.name = s(v.sipProfileName.trimmed().isEmpty()
-                   ? (v.username.trimmed().isEmpty() ? QStringLiteral("WaffleHouse SIP") : v.username.trimmed())
+                   ? (v.username.trimmed().isEmpty() ? QStringLiteral("WaffleHouse-Client SIP") : v.username.trimmed())
                    : v.sipProfileName.trimmed());
     p.sipDomain = s(v.sipDomain.trimmed().isEmpty() ? v.server.trimmed() : v.sipDomain.trimmed());
     const auto ensureSipUri = [](QString value) {
@@ -35,6 +35,8 @@ trunkmonkey::SipProfile sipProfileFromConnectionSettings(const ConnectionSetting
     catch (...) { p.transport = trunkmonkey::Transport::Udp; }
     try { p.identityMode = trunkmonkey::identityModeFromString(s(v.sipIdentityMode)); }
     catch (...) { p.identityMode = trunkmonkey::IdentityMode::From; }
+    try { p.compatibility = trunkmonkey::sipCompatibilityFromString(s(v.sipCompatibility)); }
+    catch (...) { p.compatibility = trunkmonkey::SipCompatibility::Auto; }
     p.localSipPort = v.sipLocalPort ? v.sipLocalPort : 5060;
     p.registrationExpires = v.sipRegistrationExpires ? v.sipRegistrationExpires : 300;
     p.useIce = v.sipUseIce;
@@ -60,6 +62,7 @@ void applySipProfileToConnectionSettings(const trunkmonkey::SipProfile &p,
     v.sipStunServer = q(p.stunServer);
     v.sipTransport = q(trunkmonkey::toString(p.transport));
     v.sipIdentityMode = q(trunkmonkey::toString(p.identityMode));
+    v.sipCompatibility = q(trunkmonkey::toString(p.compatibility));
     v.sipLocalPort = p.localSipPort;
     v.port = p.localSipPort;
     v.sipRegistrationExpires = p.registrationExpires;

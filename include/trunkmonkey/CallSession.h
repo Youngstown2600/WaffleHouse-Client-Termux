@@ -9,11 +9,11 @@
 #include <string>
 #include <vector>
 namespace trunkmonkey {
-class Logger;
+class Logger; class SipEngine;
 class CallSession final : public pj::Call, public std::enable_shared_from_this<CallSession> {
 public:
     using UpdateCallback=std::function<void(int)>;
-    CallSession(pj::Account& account,Logger& logger,CallDirection direction,CallPurpose purpose=CallPurpose::Phone,int callId=PJSUA_INVALID_ID);
+    CallSession(pj::Account& account,Logger& logger,SipEngine& engine,CallDirection direction,CallPurpose purpose=CallPurpose::Phone,int callId=PJSUA_INVALID_ID);
     void setUpdateCallback(UpdateCallback cb);
     void setRequestedCallerId(std::string cid);
     void setAccountIdentity(std::string accountId,std::string accountName);
@@ -27,6 +27,8 @@ public:
     void holdCall();
     void resumeCall();
     void sendDtmfDigits(const std::string& digits,unsigned durationMs=0);
+    void blindTransfer(const std::string& destination);
+    void attendedTransfer(CallSession& replacementCall);
     void setMicrophoneMuted(bool muted);
     void attachAudio();
     void detachAudio();
@@ -48,6 +50,7 @@ private:
     void notify();
     void syncSnapshot(const pj::CallInfo& info);
     Logger& logger_;
+    SipEngine& engine_;
     mutable std::mutex mutex_;
     CallSnapshot snapshot_;
     UpdateCallback updateCallback_;

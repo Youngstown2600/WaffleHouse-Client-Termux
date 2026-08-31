@@ -1,3 +1,20 @@
+## WaffleHouse-Termux 1.0 — WaffleHouse-Client 5.1 Core Merge
+
+- Renamed the native Android CLI branch to **WaffleHouse-Termux 1.0**; installed executable is `wafflehouse-termux` with a `wafflehouse-client` compatibility symlink.
+- Rebased the Termux protocol engines and CLI behavior on WaffleHouse-Client 5.1 while retaining the proven Termux 0.9 native runtime adaptations.
+- Imported the 5.1 AIM/OSCAR stack including NINA/NINAPatcher-compatible sign-on, network profiles, native OSCAR idle/presence, current service redirects, diagnostics, and OSCAR voice plumbing.
+- Imported the 5.x unified contacts/history/capability core.
+- Imported current SIP account/profile behavior including multi-account operation, generic/PJSIP/legacy Asterisk `chan_sip` compatibility, transfer controls, diagnostics, and RemoteSipAudio support.
+- Retained Termux's managed PJSIP 2.17 Android build fixes: native GUID backend, PortAudio, JNI/OpenSL/Oboe disablement, increased account/call/ioqueue limits, deferred hardware audio, speaker-only fallback, and Termux-safe runtime paths.
+- Upgraded Telnet/BBS profiles to exact saved columns/rows plus auto-fit semantics. Termux requests the configured outer geometry, watches the actual terminal with `TIOCGWINSZ`, updates ncurses live, and falls back to the largest visible NAWS grid when Android cannot fit the requested dimensions.
+- Removed the old BBS renderer's effective 80-column ceiling; 132-column profiles can render when the device/Termux font provides enough cells.
+- Preserved and extended the 0.9 responsive phone layout, including compact chrome and adaptive modal sizing down to a 24×6 terminal.
+- Added current Termux media/browser/download integration to the 5.1 CLI (`termux-media-player`, `termux-open-url`, shared Downloads).
+- Updated builder, updater, tests, help text, package labels, softphone user-agent/version metadata, and documentation for the 1.0 release.
+
+---
+
+### Historical Termux branch notes
 ## Build 0.9 — Responsive Termux TUI
 
 - TUI now polls the live Termux terminal geometry and calls `resizeterm()` when Android changes the PTY size.

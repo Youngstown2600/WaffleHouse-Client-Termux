@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(WaffleHouseClientTermux VERSION 0.9.0 LANGUAGES CXX)
+project(WaffleHouseTermux VERSION 1.0.0 LANGUAGES CXX)
 
-set(APP_DISPLAY_NAME "WaffleHouse-Client-Termux" CACHE STRING "Application display name")
+set(APP_DISPLAY_NAME "WaffleHouse-Termux" CACHE STRING "Application display name")
 set(APP_ID "WaffleHouseClient" CACHE STRING "Application settings/config identifier")
-set(APP_EXECUTABLE "wafflehouse-client" CACHE STRING "Executable name")
+set(APP_EXECUTABLE "wafflehouse-termux" CACHE STRING "Executable name")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,14 +11,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
 find_package(Threads REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Multimedia)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(NCURSESW REQUIRED IMPORTED_TARGET ncursesw)
 pkg_check_modules(PJPROJECT REQUIRED libpjproject)
 
 if(NOT PJPROJECT_VERSION VERSION_EQUAL "2.17")
-    message(FATAL_ERROR "WaffleHouse-Client-Termux Build 0.9 requires PJSIP 2.17; pkg-config reported ${PJPROJECT_VERSION}")
+    message(FATAL_ERROR "WaffleHouse-Termux 1.0 requires PJSIP 2.17; pkg-config reported ${PJPROJECT_VERSION}")
 endif()
 if(NOT PJPROJECT_STATIC_LDFLAGS)
     message(FATAL_ERROR "PJSIP static link flags missing. Rebuild managed PJSIP with ./build.sh --pjsip")
@@ -34,8 +34,12 @@ add_library(wafflehouse_sipcore
     src/sipcore/SipEngine.cpp
     src/sipcore/SipWireMonitor.cpp
     src/sipcore/RuntimePaths.cpp
+    src/sipcore/RemoteSipAudio.cpp
 )
-target_include_directories(wafflehouse_sipcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${PJPROJECT_INCLUDE_DIRS})
+target_include_directories(wafflehouse_sipcore PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${PJPROJECT_INCLUDE_DIRS}
+)
 target_compile_options(wafflehouse_sipcore PUBLIC ${PJPROJECT_CFLAGS_OTHER})
 target_link_libraries(wafflehouse_sipcore PUBLIC ${PJPROJECT_STATIC_LDFLAGS} Threads::Threads)
 
@@ -46,6 +50,7 @@ add_executable(${APP_EXECUTABLE}
     src/ircbackend.cpp
     src/oscarprotocol.cpp
     src/oscarbackend.cpp
+    src/oscarvoice.cpp
     src/telnetbackend.cpp
     src/ansiterminal.cpp
     src/bbsdirectory.cpp
@@ -59,25 +64,36 @@ add_executable(${APP_EXECUTABLE}
     src/terminalui.cpp
     src/sipcontroller.cpp
     src/sipbackend.cpp
+    src/core/capabilityregistry.cpp
+    src/core/contactstore.cpp
+    src/core/historystore.cpp
 )
 
-target_include_directories(${APP_EXECUTABLE} PRIVATE src include)
+target_include_directories(${APP_EXECUTABLE} PRIVATE src include ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(${APP_EXECUTABLE} PRIVATE
     APP_DISPLAY_NAME="${APP_DISPLAY_NAME}"
     APP_ID="${APP_ID}"
     APP_EXECUTABLE="${APP_EXECUTABLE}"
-    APP_VERSION_STRING="Build 0.9"
+    APP_VERSION_STRING="1.0"
     WAFFLEHOUSE_TERMUX=1
     WAFFLEHOUSE_ANDROID=1
+    WAFFLEHOUSE_OSCAR_VOICE=1
+    WAFFLEHOUSE_FEATURE_OSCAR=1
+    WAFFLEHOUSE_FEATURE_IRC=1
+    WAFFLEHOUSE_FEATURE_TELNET=1
+    WAFFLEHOUSE_FEATURE_SIP=1
+    WAFFLEHOUSE_FEATURE_MEDIA=1
     WAFFLEHOUSE_SOURCE_SOUND_DIR="${CMAKE_CURRENT_SOURCE_DIR}/sounds"
 )
 target_link_libraries(${APP_EXECUTABLE} PRIVATE
     wafflehouse_sipcore
     Qt6::Core
     Qt6::Network
+    Qt6::Multimedia
     PkgConfig::SODIUM
     PkgConfig::NCURSESW
 )
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${APP_EXECUTABLE} PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(wafflehouse_sipcore PRIVATE -Wall -Wextra -Wpedantic)
@@ -86,4 +102,4 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS ${APP_EXECUTABLE} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS scripts/termux-audio-preflight.sh DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME wafflehouse-audio-preflight)
-install(DIRECTORY sounds/ DESTINATION ${CMAKE_INSTALL_DATADIR}/wafflehouse-client/sounds FILES_MATCHING PATTERN "*.wav")
+install(DIRECTORY sounds/ DESTINATION ${CMAKE_INSTALL_DATADIR}/wafflehouse-termux/sounds FILES_MATCHING PATTERN "*.wav")
