@@ -1,3 +1,11 @@
+## WaffleHouse-Termux 1.0r1 — Termux Qt dependency repair
+
+- Removed the accidental desktop `Qt6Multimedia` requirement from the native Termux CLI build.
+- OSCAR Voice now uses native **PortAudio** on Termux instead of `QAudioSource`/`QAudioSink`, preserving the 5.1 voice feature without dragging in Qt6Gui.
+- Builder no longer installs `qt6-qtmultimedia`; required Qt components are back to **Core + Network**.
+- Fixed OSCAR Voice PCM packet sizing so 20 ms frames track the negotiated sample rate rather than assuming 16 kHz.
+- Added a one-second playback queue cap to prevent stale voice audio from accumulating after Android audio stalls.
+
 ## WaffleHouse-Termux 1.0 — WaffleHouse-Client 5.1 Core Merge
 
 - Renamed the native Android CLI branch to **WaffleHouse-Termux 1.0**; installed executable is `wafflehouse-termux` with a `wafflehouse-client` compatibility symlink.

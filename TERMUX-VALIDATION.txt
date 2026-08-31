@@ -1,4 +1,4 @@
-WaffleHouse-Termux 1.0 — source/parity validation
+WaffleHouse-Termux 1.0r1 — source/parity validation
 ================================================
 
 Release target
@@ -12,7 +12,7 @@ Static regression coverage included in this archive
 1. Release identity and CLI-only build boundaries.
 2. AIM/OSCAR 5.1 NINA network profiles/bootstrap markers.
 3. Native OSCAR idle/presence and diagnostic modes.
-4. OSCAR voice engine and CLI command wiring.
+4. OSCAR voice engine and CLI command wiring, using native PortAudio rather than Qt Multimedia/Gui.
 5. Unified contact/history/capability core.
 6. Current SIP compatibility including Asterisk chan_sip and concurrent-account
    capacity assumptions.
@@ -23,6 +23,7 @@ Static regression coverage included in this archive
 9. Responsive 24x6 phone layout and adaptive popup sizes.
 10. Termux shared Downloads, browser handoff, media-player integration, and
     installer/update aliases.
+11. Qt dependency boundary: Termux requires Qt Core + Network only; Qt Multimedia/Gui are not part of the native CLI build.
 
 Run from the source root:
 

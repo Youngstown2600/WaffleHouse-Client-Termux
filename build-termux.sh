@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-APP="WaffleHouse-Termux 1.0"
+APP="WaffleHouse-Termux 1.0r1"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PREFIX_EXPECTED="/data/data/com.termux/files/usr"
 BUILD="$ROOT/build-termux"
@@ -83,12 +83,12 @@ install_xdg_provider(){
   install -d -m 0755 "$stage/DEBIAN"
   cat > "$stage/DEBIAN/control" <<CTRL
 Package: wafflehouse-termux-xdg-provider
-Version: 1.0.0
+Version: 1.0.1
 Architecture: all
 Maintainer: WaffleHouse-Termux
 Provides: xdg-utils
 Conflicts: xdg-utils
-Description: Metadata-only xdg-utils provider for WaffleHouse-Termux 1.0
+Description: Metadata-only xdg-utils provider for WaffleHouse-Termux 1.0r1
  Contains no files. Termux's existing xdg-open command remains owned by termux-tools.
 CTRL
   chmod 0644 "$stage/DEBIAN/control"
@@ -106,7 +106,7 @@ install_dependencies(){
   say "Installing Termux-native dependencies"
   pkg install -y \
     clang cmake make ninja pkg-config git curl ca-certificates python \
-    qt6-qtbase qt6-qtmultimedia libsodium ncurses openssl libuuid portaudio libopus \
+    qt6-qtbase libsodium ncurses openssl libuuid portaudio libopus \
     mpv ffmpeg termux-api
 }
 
@@ -124,7 +124,7 @@ pjsip_limits_ok(){
   # configuration before trusting a cached managed PJSIP install.
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_PORTAUDIO[[:space:]]+1([[:space:]]|$)' "$cfg" || return 1
   grep -Eq '^[[:space:]]*#define[[:space:]]+PJMEDIA_AUDIO_DEV_HAS_ANDROID_JNI[[:space:]]+0([[:space:]]|$)' "$cfg" || return 1
-  # Native Termux has no Java VM. WaffleHouse-Termux 1.0 replaces PJSIP's Android/JNI
+  # Native Termux has no Java VM. WaffleHouse-Termux 1.0r1 replaces PJSIP's Android/JNI
   # UUID backend with upstream guid_simple.o so SIP branch/Call-ID/tag values
   # are valid in a standalone terminal process.
   [[ -f "$PJINSTALL/.wafflehouse-termux-guid-backend" ]] || return 1
@@ -232,7 +232,7 @@ CFG
 }
 
 run_tests(){
-  say "Running WaffleHouse-Termux 1.0 regression gates"
+  say "Running WaffleHouse-Termux 1.0r1 regression gates"
   bash "$ROOT/tests/run-termux-tests.sh"
   bash "$ROOT/tests/termux_sip_password_persistence_test.sh"
   bash "$ROOT/tests/termux_sip_runtime_test.sh"

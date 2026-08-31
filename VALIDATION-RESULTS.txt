@@ -1,7 +1,7 @@
-WaffleHouse-Termux 1.0 validation results
+WaffleHouse-Termux 1.0r1 validation results
 =========================================
 
-Source/parity regression gate: PASS (48 passed, 0 failed)
+Source/parity regression gate: PASS (50 passed, 0 failed)
 SIP saved-password + timeout-disconnect regression: PASS
 Native Termux SIP runtime/JNI-isolation regression: PASS
 Shell syntax (builder/updater/tests/scripts): PASS
@@ -12,9 +12,10 @@ Validated merge invariants include:
   unified contacts/history/capabilities, current SIP compatibility/transfer
   features, media, secure rooms, and transfer plumbing.
 - Native Termux PJSIP 2.17 GUID/audio/runtime-path protections retained.
+- Qt6Multimedia/Qt6Gui dependency leak removed; OSCAR Voice now uses native PortAudio on Termux.
 - Exact Telnet/BBS profile geometry plus live Termux viewport detection,
   responsive rendering, and live NAWS updates.
-- WaffleHouse-Termux 1.0 branding, executable, updater, and compatibility alias.
+- WaffleHouse-Termux 1.0r1 branding, executable, updater, and compatibility alias.
 
 Environment limitation
 ----------------------

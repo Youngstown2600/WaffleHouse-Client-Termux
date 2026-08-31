@@ -1,4 +1,4 @@
-# WaffleHouse-Termux 1.0 merge notes
+# WaffleHouse-Termux 1.0r1 merge notes
 
 This tree uses the former native Termux 0.9 branch as the Android runtime foundation and the WaffleHouse-Client 5.1 shared sources as the protocol/core authority.
 

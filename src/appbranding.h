@@ -12,7 +12,7 @@
 #define APP_EXECUTABLE "wafflehouse-termux"
 #endif
 #ifndef APP_VERSION_STRING
-#define APP_VERSION_STRING "1.0"
+#define APP_VERSION_STRING "1.0r1"
 #endif
 
 inline QString appDisplayName() { return QString::fromUtf8(APP_DISPLAY_NAME); }

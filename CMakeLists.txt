@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(WaffleHouseTermux VERSION 1.0.0 LANGUAGES CXX)
+project(WaffleHouseTermux VERSION 1.0.1 LANGUAGES CXX)
 
 set(APP_DISPLAY_NAME "WaffleHouse-Termux" CACHE STRING "Application display name")
 set(APP_ID "WaffleHouseClient" CACHE STRING "Application settings/config identifier")
@@ -11,14 +11,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
 find_package(Threads REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core Network Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Core Network)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(NCURSESW REQUIRED IMPORTED_TARGET ncursesw)
+pkg_check_modules(PORTAUDIO REQUIRED IMPORTED_TARGET portaudio-2.0)
 pkg_check_modules(PJPROJECT REQUIRED libpjproject)
 
 if(NOT PJPROJECT_VERSION VERSION_EQUAL "2.17")
-    message(FATAL_ERROR "WaffleHouse-Termux 1.0 requires PJSIP 2.17; pkg-config reported ${PJPROJECT_VERSION}")
+    message(FATAL_ERROR "WaffleHouse-Termux 1.0r1 requires PJSIP 2.17; pkg-config reported ${PJPROJECT_VERSION}")
 endif()
 if(NOT PJPROJECT_STATIC_LDFLAGS)
     message(FATAL_ERROR "PJSIP static link flags missing. Rebuild managed PJSIP with ./build.sh --pjsip")
@@ -74,7 +75,7 @@ target_compile_definitions(${APP_EXECUTABLE} PRIVATE
     APP_DISPLAY_NAME="${APP_DISPLAY_NAME}"
     APP_ID="${APP_ID}"
     APP_EXECUTABLE="${APP_EXECUTABLE}"
-    APP_VERSION_STRING="1.0"
+    APP_VERSION_STRING="1.0r1"
     WAFFLEHOUSE_TERMUX=1
     WAFFLEHOUSE_ANDROID=1
     WAFFLEHOUSE_OSCAR_VOICE=1
@@ -89,9 +90,9 @@ target_link_libraries(${APP_EXECUTABLE} PRIVATE
     wafflehouse_sipcore
     Qt6::Core
     Qt6::Network
-    Qt6::Multimedia
     PkgConfig::SODIUM
     PkgConfig::NCURSESW
+    PkgConfig::PORTAUDIO
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

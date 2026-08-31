@@ -1,19 +1,16 @@
 #include "oscarvoice.h"
 
-#include <QAudioDevice>
-#include <QAudioFormat>
-#include <QAudioSink>
-#include <QAudioSource>
 #include <QHostAddress>
-#include <QIODevice>
-#include <QMediaDevices>
+#include <QMetaObject>
 #include <QNetworkAddressEntry>
 #include <QNetworkInterface>
 #include <QUdpSocket>
 
+#include <algorithm>
+#include <cstring>
+
 namespace {
 constexpr qsizetype kHeaderSize = 11;
-constexpr qsizetype kPayloadBytes = 640; // 20 ms of 16-kHz mono PCM16; also a safe UDP size.
 const QByteArray kMagic = QByteArrayLiteral("WHV1");
 
 void appendU16(QByteArray &out, quint16 value)
@@ -34,6 +31,12 @@ quint16 readU16(const QByteArray &data, qsizetype offset)
 {
     return (static_cast<quint16>(static_cast<unsigned char>(data.at(offset))) << 8)
          | static_cast<quint16>(static_cast<unsigned char>(data.at(offset + 1)));
+}
+
+QString paError(PaError error)
+{
+    const char *text = Pa_GetErrorText(error);
+    return QString::fromUtf8(text ? text : "unknown PortAudio error");
 }
 
 QString bestLocalIpv4()
@@ -69,56 +72,106 @@ OscarVoiceSession::~OscarVoiceSession()
     stop();
 }
 
+qsizetype OscarVoiceSession::voiceFrameBytes() const
+{
+    // 20 ms, mono signed 16-bit PCM. Unlike the old fixed 640-byte Qt path,
+    // this stays correct if peers negotiate 8/44.1/48 kHz instead of 16 kHz.
+    return std::max<qsizetype>(2, static_cast<qsizetype>((m_sampleRate / 50) * 2));
+}
+
 bool OscarVoiceSession::configureAudio(int requestedSampleRate, QString *error)
 {
-    const QAudioDevice input = QMediaDevices::defaultAudioInput();
-    const QAudioDevice output = QMediaDevices::defaultAudioOutput();
-    if (input.isNull() || output.isNull()) {
-        if (error) *error = QStringLiteral("No usable default microphone/speaker device was found.");
-        return false;
-    }
-
-    QList<int> rates;
-    if (requestedSampleRate > 0) {
-        rates << requestedSampleRate;
-    } else {
-        rates << 16000 << 48000 << 44100 << 8000;
-    }
-
-    QAudioFormat chosen;
-    for (const int rate : rates) {
-        QAudioFormat format;
-        format.setSampleRate(rate);
-        format.setChannelCount(1);
-        format.setSampleFormat(QAudioFormat::Int16);
-        if (input.isFormatSupported(format) && output.isFormatSupported(format)) {
-            chosen = format;
-            break;
+    if (!m_portAudioInitialized) {
+        const PaError init = Pa_Initialize();
+        if (init != paNoError) {
+            if (error) *error = QStringLiteral("PortAudio initialization failed: %1").arg(paError(init));
+            return false;
         }
-    }
-    if (!chosen.isValid()) {
-        if (error) *error = QStringLiteral("The default input/output devices have no common mono PCM16 voice format.");
-        return false;
+        m_portAudioInitialized = true;
     }
 
-    resetAudio();
-    m_sampleRate = chosen.sampleRate();
-    m_source = new QAudioSource(input, chosen, this);
-    m_sink = new QAudioSink(output, chosen, this);
-    m_capture = m_source->start();
-    m_playback = m_sink->start();
-    if (!m_capture || !m_playback) {
-        if (error) *error = QStringLiteral("Could not start the OSCAR voice audio devices.");
+    const PaDeviceIndex inputDevice = Pa_GetDefaultInputDevice();
+    const PaDeviceIndex outputDevice = Pa_GetDefaultOutputDevice();
+    if (inputDevice == paNoDevice || outputDevice == paNoDevice) {
+        if (error) *error = QStringLiteral("No usable default Termux microphone/speaker device was found. Run wafflehouse-audio-preflight and check Android microphone permission.");
         resetAudio();
         return false;
     }
-    connect(m_capture, &QIODevice::readyRead, this, &OscarVoiceSession::captureReady);
+
+    const PaDeviceInfo *inputInfo = Pa_GetDeviceInfo(inputDevice);
+    const PaDeviceInfo *outputInfo = Pa_GetDeviceInfo(outputDevice);
+    if (!inputInfo || !outputInfo) {
+        if (error) *error = QStringLiteral("PortAudio could not inspect the default Termux audio devices.");
+        resetAudio();
+        return false;
+    }
+
+    PaStreamParameters inputParams{};
+    inputParams.device = inputDevice;
+    inputParams.channelCount = 1;
+    inputParams.sampleFormat = paInt16;
+    inputParams.suggestedLatency = inputInfo->defaultLowInputLatency;
+    inputParams.hostApiSpecificStreamInfo = nullptr;
+
+    PaStreamParameters outputParams{};
+    outputParams.device = outputDevice;
+    outputParams.channelCount = 1;
+    outputParams.sampleFormat = paInt16;
+    outputParams.suggestedLatency = outputInfo->defaultLowOutputLatency;
+    outputParams.hostApiSpecificStreamInfo = nullptr;
+
+    QList<int> rates;
+    if (requestedSampleRate > 0) rates << requestedSampleRate;
+    else rates << 16000 << 48000 << 44100 << 8000;
+
+    int chosenRate = 0;
+    for (const int rate : rates) {
+        if (Pa_IsFormatSupported(&inputParams, &outputParams, static_cast<double>(rate)) == paFormatIsSupported) {
+            chosenRate = rate;
+            break;
+        }
+    }
+    if (chosenRate <= 0) {
+        if (error) *error = QStringLiteral("The default Termux input/output devices have no common mono PCM16 voice format.");
+        resetAudio();
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> guard(m_audioMutex);
+        m_captureBuffer.clear();
+        m_playbackBuffer.clear();
+    }
+    m_sampleRate = chosenRate;
+    const unsigned long framesPerBuffer = static_cast<unsigned long>(std::max(80, chosenRate / 50));
+
+    PaError pa = Pa_OpenStream(&m_stream,
+                               &inputParams,
+                               &outputParams,
+                               static_cast<double>(chosenRate),
+                               framesPerBuffer,
+                               paClipOff,
+                               &OscarVoiceSession::portAudioCallback,
+                               this);
+    if (pa != paNoError) {
+        if (error) *error = QStringLiteral("Could not open Termux OSCAR voice audio stream: %1").arg(paError(pa));
+        m_stream = nullptr;
+        resetAudio();
+        return false;
+    }
+
+    pa = Pa_StartStream(m_stream);
+    if (pa != paNoError) {
+        if (error) *error = QStringLiteral("Could not start Termux OSCAR voice audio stream: %1").arg(paError(pa));
+        resetAudio();
+        return false;
+    }
     return true;
 }
 
 bool OscarVoiceSession::prepare(int requestedSampleRate, QString *error)
 {
-    if (m_prepared) {
+    if (m_prepared.load()) {
         if (requestedSampleRate <= 0 || requestedSampleRate == m_sampleRate) return true;
         if (error) *error = QStringLiteral("The peer requested %1 Hz but this voice session is already prepared at %2 Hz.")
                                 .arg(requestedSampleRate).arg(m_sampleRate);
@@ -132,8 +185,8 @@ bool OscarVoiceSession::prepare(int requestedSampleRate, QString *error)
         m_socket->close();
         return false;
     }
-    m_prepared = true;
-    emit statusChanged(QStringLiteral("Voice audio ready on UDP %1 at %2 Hz.")
+    m_prepared.store(true);
+    emit statusChanged(QStringLiteral("Termux PortAudio voice ready on UDP %1 at %2 Hz.")
                            .arg(localPort()).arg(m_sampleRate));
     return true;
 }
@@ -143,7 +196,7 @@ bool OscarVoiceSession::start(const QString &peer,
                               quint16 remotePort,
                               QString *error)
 {
-    if (!m_prepared && !prepare(0, error)) return false;
+    if (!m_prepared.load() && !prepare(0, error)) return false;
     QHostAddress address;
     if (!address.setAddress(remoteAddress) || address.protocol() != QAbstractSocket::IPv4Protocol) {
         if (error) *error = QStringLiteral("Invalid OSCAR voice peer address: %1").arg(remoteAddress);
@@ -156,7 +209,7 @@ bool OscarVoiceSession::start(const QString &peer,
     m_peer = peer;
     m_remoteAddress = address.toString();
     m_remotePort = remotePort;
-    m_active = true;
+    m_active.store(true);
     emit activeChanged(true);
     emit statusChanged(QStringLiteral("OSCAR voice connected to %1 at %2:%3.")
                            .arg(peer, m_remoteAddress).arg(m_remotePort));
@@ -165,15 +218,13 @@ bool OscarVoiceSession::start(const QString &peer,
 
 void OscarVoiceSession::stop()
 {
-    const bool wasActive = m_active;
-    m_active = false;
-    m_prepared = false;
+    const bool wasActive = m_active.exchange(false);
+    m_prepared.store(false);
+    m_muted.store(false);
     m_peer.clear();
     m_remoteAddress.clear();
     m_remotePort = 0;
-    m_captureBuffer.clear();
     m_sequence = 0;
-    m_muted = false;
     resetAudio();
     if (m_socket) m_socket->close();
     if (wasActive) emit activeChanged(false);
@@ -181,18 +232,22 @@ void OscarVoiceSession::stop()
 
 void OscarVoiceSession::resetAudio()
 {
-    if (m_source) {
-        m_source->stop();
-        m_source->deleteLater();
-        m_source = nullptr;
+    if (m_stream) {
+        const PaError active = Pa_IsStreamActive(m_stream);
+        if (active == 1) Pa_StopStream(m_stream);
+        Pa_CloseStream(m_stream);
+        m_stream = nullptr;
     }
-    if (m_sink) {
-        m_sink->stop();
-        m_sink->deleteLater();
-        m_sink = nullptr;
+    {
+        std::lock_guard<std::mutex> guard(m_audioMutex);
+        m_captureBuffer.clear();
+        m_playbackBuffer.clear();
     }
-    m_capture = nullptr;
-    m_playback = nullptr;
+    if (m_portAudioInitialized) {
+        Pa_Terminate();
+        m_portAudioInitialized = false;
+    }
+    m_sampleRate = 0;
 }
 
 quint16 OscarVoiceSession::localPort() const
@@ -207,19 +262,61 @@ QString OscarVoiceSession::localAddress() const
 
 void OscarVoiceSession::setMuted(bool muted)
 {
-    m_muted = muted;
+    m_muted.store(muted);
     emit statusChanged(muted ? QStringLiteral("OSCAR voice microphone muted.")
                              : QStringLiteral("OSCAR voice microphone unmuted."));
 }
 
+int OscarVoiceSession::portAudioCallback(const void *inputBuffer,
+                                         void *outputBuffer,
+                                         unsigned long framesPerBuffer,
+                                         const PaStreamCallbackTimeInfo *,
+                                         PaStreamCallbackFlags,
+                                         void *userData)
+{
+    auto *self = static_cast<OscarVoiceSession *>(userData);
+    if (!self) return paAbort;
+
+    const qsizetype bytes = static_cast<qsizetype>(framesPerBuffer * sizeof(qint16));
+    bool queuedCapture = false;
+    {
+        std::lock_guard<std::mutex> guard(self->m_audioMutex);
+
+        if (outputBuffer) {
+            std::memset(outputBuffer, 0, static_cast<size_t>(bytes));
+            const qsizetype available = std::min(bytes, self->m_playbackBuffer.size());
+            if (available > 0) {
+                std::memcpy(outputBuffer, self->m_playbackBuffer.constData(), static_cast<size_t>(available));
+                self->m_playbackBuffer.remove(0, available);
+            }
+        }
+
+        if (inputBuffer && self->m_active.load() && !self->m_muted.load()) {
+            self->m_captureBuffer.append(static_cast<const char *>(inputBuffer), bytes);
+            queuedCapture = self->m_captureBuffer.size() >= self->voiceFrameBytes();
+        }
+    }
+
+    if (queuedCapture) {
+        QMetaObject::invokeMethod(self, "captureReady", Qt::QueuedConnection);
+    }
+    return paContinue;
+}
+
 void OscarVoiceSession::captureReady()
 {
-    if (!m_capture) return;
-    m_captureBuffer += m_capture->readAll();
-    while (m_captureBuffer.size() >= kPayloadBytes) {
-        const QByteArray chunk = m_captureBuffer.left(kPayloadBytes);
-        m_captureBuffer.remove(0, kPayloadBytes);
-        if (m_active && !m_muted) sendAudioChunk(chunk);
+    if (!m_active.load() || m_muted.load()) return;
+
+    for (;;) {
+        QByteArray chunk;
+        {
+            std::lock_guard<std::mutex> guard(m_audioMutex);
+            const qsizetype frameBytes = voiceFrameBytes();
+            if (m_captureBuffer.size() < frameBytes) break;
+            chunk = m_captureBuffer.left(frameBytes);
+            m_captureBuffer.remove(0, frameBytes);
+        }
+        sendAudioChunk(chunk);
     }
 }
 
@@ -250,7 +347,7 @@ void OscarVoiceSession::datagramsReady()
         if (size < kHeaderSize) continue;
         packet.resize(size);
         if (packet.left(4) != kMagic) continue;
-        if (m_active) {
+        if (m_active.load()) {
             const QHostAddress expected(m_remoteAddress);
             if (!expected.isNull() && sender != expected) continue;
             if (m_remotePort != 0 && senderPort != m_remotePort) {
@@ -261,8 +358,18 @@ void OscarVoiceSession::datagramsReady()
         }
         const int rate = readU16(packet, 8);
         const int channels = static_cast<unsigned char>(packet.at(10));
-        if (rate != m_sampleRate || channels != 1 || !m_playback) continue;
+        if (rate != m_sampleRate || channels != 1 || !m_stream) continue;
         const QByteArray audio = packet.mid(kHeaderSize);
-        if (!audio.isEmpty()) m_playback->write(audio);
+        if (audio.isEmpty()) continue;
+
+        std::lock_guard<std::mutex> guard(m_audioMutex);
+        // Cap queued playback to roughly one second. If Android stalls audio,
+        // dropping old voice is preferable to accumulating seconds of latency.
+        const qsizetype maxQueued = std::max<qsizetype>(voiceFrameBytes(), static_cast<qsizetype>(m_sampleRate * 2));
+        if (m_playbackBuffer.size() + audio.size() > maxQueued) {
+            const qsizetype drop = (m_playbackBuffer.size() + audio.size()) - maxQueued;
+            m_playbackBuffer.remove(0, std::min(drop, m_playbackBuffer.size()));
+        }
+        m_playbackBuffer += audio;
     }
 }

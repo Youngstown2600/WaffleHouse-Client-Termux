@@ -1,0 +1,65 @@
+WaffleHouse-Termux 1.0r1 final regression run
+=============================================
+UTC: 2026-08-31T03:19:02Z
+
+PASS: WaffleHouse-Termux 1.0r1 branding
+PASS: Dedicated Termux entry point
+PASS: Canonical Termux executable
+PASS: 5.1 core identified in CLI
+PASS: Qt Core/Network only
+PASS: No Qt Multimedia dependency
+PASS: Native PortAudio OSCAR voice
+PASS: No Qt Widgets link
+PASS: No Qt Gui link
+PASS: No QApplication
+PASS: No desktop GUI source files
+PASS: All five protocol/media features enabled
+PASS: Unified contact/history/capability core
+PASS: NINA network profiles
+PASS: NINA BOSS multi-connection bootstrap
+PASS: 5.1 tolerant OSCAR family negotiation
+PASS: Native OSCAR idle/presence
+PASS: OSCAR diagnostic modes
+PASS: OSCAR voice engine/commands
+PASS: IRC retained
+PASS: Secure rooms/transfers retained
+PASS: Media/streams retained
+PASS: PJSIP 2.17 managed build
+PASS: PJSIP WaffleHouse account/call limits
+PASS: Multi-SIP capacity gate
+PASS: Asterisk chan_sip compatibility
+PASS: SIP server type exposed in CLI
+PASS: SIP blind/attended transfer controls
+PASS: 5.1 remote SIP audio bridge
+PASS: Termux native GUID backend
+PASS: Termux deferred-hardware RTP mode
+PASS: Termux audio fallback keeps call alive
+PASS: Termux runtime paths avoid hard /tmp
+PASS: SIP saved passwords survive network timeouts
+PASS: SIP startup failures visible in CLI
+PASS: Timed-out SIP disconnect is idempotent
+PASS: Exact BBS profile geometry retained
+PASS: BBS exact outer resize request
+PASS: Live Android/Termux viewport detection
+PASS: BBS NAWS follows visible viewport fallback
+PASS: BBS renderer no longer hard-capped at 80
+PASS: Live Telnet NAWS support
+PASS: Responsive phone shell
+PASS: Termux shared Downloads support
+PASS: Android notification audio
+PASS: Android browser handoff
+PASS: Audio preflight installed
+PASS: Builder supports upgrade
+PASS: Compatibility launcher retained
+PASS: No desktop package manager leakage
+
+WaffleHouse-Termux 1.0r1 / Core-5.1 parity gate: 50 passed, 0 failed
+
+Termux SIP saved-password + timeout disconnect regression: PASS
+Termux native SIP runtime/JNI isolation regression: PASS
+
+Shell syntax:
+PASS
+
+Qt dependency scan:
+PASS: no Qt Multimedia/Qt Gui audio dependency remains in the Termux build/source path

@@ -1,6 +1,6 @@
-# WaffleHouse-Termux 1.0
+# WaffleHouse-Termux 1.0r1
 
-**WaffleHouse-Termux 1.0** is the native Android/Termux CLI edition of WaffleHouse. This release moves the old Termux 0.9 branch onto the **WaffleHouse-Client 5.1 protocol/core baseline** while preserving the Android-specific runtime fixes that made the Termux build usable in the first place.
+**WaffleHouse-Termux 1.0r1** is the native Android/Termux CLI edition of WaffleHouse. This release moves the old Termux 0.9 branch onto the **WaffleHouse-Client 5.1 protocol/core baseline** while preserving the Android-specific runtime fixes that made the Termux build usable in the first place.
 
 It is intentionally a terminal application: no Qt Widgets GUI and no X11 requirement. The executable is `wafflehouse-termux`; `wafflehouse-client` is installed as a compatibility alias.
 
@@ -102,3 +102,7 @@ The release contains a static parity/regression gate:
 ```
 
 These checks verify the 5.1 engine markers, Termux-specific SIP fixes, BBS geometry logic, responsive TUI behavior, and installer wiring. A real Android/Termux compile and live network/audio test still needs to be performed on an actual Termux installation because the release-preparation environment is not an Android/Termux runtime.
+
+## 1.0r1 Termux Qt dependency fix
+
+If 1.0 stopped at CMake with `Qt6Multimedia_FOUND = FALSE` / `Qt6Gui could not be found`, use this revision. The native CLI no longer asks CMake for Qt Multimedia or Qt Gui. OSCAR Voice uses the same Termux-native PortAudio layer already installed for voice work, while media playback continues to use `mpv`/`ffmpeg` through the CLI controller.

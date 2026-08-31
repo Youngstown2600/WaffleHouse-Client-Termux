@@ -5,11 +5,13 @@ pass=0; fail=0
 check(){ if eval "$2"; then printf 'PASS: %s\n' "$1"; pass=$((pass+1)); else printf 'FAIL: %s\n' "$1"; fail=$((fail+1)); fi; }
 
 # Release identity / native Termux shell.
-check "WaffleHouse-Termux 1.0 branding" "grep -q '#define APP_DISPLAY_NAME \"WaffleHouse-Termux\"' '$ROOT/src/appbranding.h' && grep -q '#define APP_VERSION_STRING \"1.0\"' '$ROOT/src/appbranding.h'"
+check "WaffleHouse-Termux 1.0r1 branding" "grep -q '#define APP_DISPLAY_NAME \"WaffleHouse-Termux\"' '$ROOT/src/appbranding.h' && grep -q '#define APP_VERSION_STRING \"1.0r1\"' '$ROOT/src/appbranding.h'"
 check "Dedicated Termux entry point" "test -f '$ROOT/src/main_termux.cpp' && test ! -f '$ROOT/src/main.cpp'"
 check "Canonical Termux executable" "grep -q 'APP_EXECUTABLE \"wafflehouse-termux\"' '$ROOT/src/appbranding.h' && grep -q 'APP_EXECUTABLE \"wafflehouse-termux\"' '$ROOT/CMakeLists.txt'"
 check "5.1 core identified in CLI" "grep -q 'WaffleHouse-Client 5.1 core' '$ROOT/src/main_termux.cpp' && grep -q 'Core-5.1' '$ROOT/include/trunkmonkey/Version.h'"
-check "Qt Core/Network/Multimedia only" "grep -q 'COMPONENTS Core Network Multimedia' '$ROOT/CMakeLists.txt'"
+check "Qt Core/Network only" "grep -q 'COMPONENTS Core Network)' '$ROOT/CMakeLists.txt'"
+check "No Qt Multimedia dependency" "! grep -q 'Qt6::Multimedia' '$ROOT/CMakeLists.txt' && ! grep -q 'qt6-qtmultimedia' '$ROOT/build-termux.sh'"
+check "Native PortAudio OSCAR voice" "grep -q 'portaudio-2.0' '$ROOT/CMakeLists.txt' && grep -q 'PkgConfig::PORTAUDIO' '$ROOT/CMakeLists.txt' && grep -q 'Pa_OpenStream' '$ROOT/src/oscarvoice.cpp' && grep -q 'PortAudio voice ready' '$ROOT/src/oscarvoice.cpp'"
 check "No Qt Widgets link" "! grep -q 'Qt6::Widgets' '$ROOT/CMakeLists.txt'"
 check "No Qt Gui link" "! grep -q 'Qt6::Gui' '$ROOT/CMakeLists.txt'"
 check "No QApplication" "! grep -Rqs 'QApplication' '$ROOT/src'"
@@ -62,5 +64,5 @@ check "Builder supports upgrade" "grep -q -- '--upgrade' '$ROOT/build-termux.sh'
 check "Compatibility launcher retained" "grep -q 'ln -sf.*wafflehouse-termux.*wafflehouse-client' '$ROOT/build-termux.sh'"
 check "No desktop package manager leakage" "! grep -q 'apt-get' '$ROOT/build-termux.sh' && grep -q 'pkg install' '$ROOT/build-termux.sh'"
 
-printf '\nWaffleHouse-Termux 1.0 / Core-5.1 parity gate: %d passed, %d failed\n' "$pass" "$fail"
+printf '\nWaffleHouse-Termux 1.0r1 / Core-5.1 parity gate: %d passed, %d failed\n' "$pass" "$fail"
 (( fail == 0 ))
